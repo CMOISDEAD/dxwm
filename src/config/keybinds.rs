@@ -275,6 +275,44 @@ impl WindowManager {
             );
         }
 
+        if let Some(key) = grabber.keysym_to_keycode(XK_PRINT) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::default(),
+                KeyAction::Custom(|wm| {
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg("maim | xclip -selection clipboard -t image/png -i")
+                        .spawn()
+                        .unwrap()
+                        .wait()
+                        .ok();
+
+                    wm.draw_alert("Screenshot copied to cliboard".to_string())
+                        .ok();
+                }),
+            );
+        }
+
+        if let Some(key) = grabber.keysym_to_keycode(XK_PRINT) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::SHIFT,
+                KeyAction::Custom(|wm| {
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg("maim -s | xclip -selection clipboard -t image/png -i")
+                        .spawn()
+                        .unwrap()
+                        .wait()
+                        .ok();
+
+                    wm.draw_alert("Screenshot area copied to cliboard".to_string())
+                        .ok();
+                }),
+            );
+        }
+
         // === SUBMAP: NAV ===
         self.keybindings.add_submap("nav".to_string(), false);
 
