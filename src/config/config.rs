@@ -1,0 +1,3 @@
+pub const BORDER_WIDTH: u32 = 1;
+pub const BORDER_FOCUSED: u32 = 0x0000FF;
+pub const BORDER_UNFOCUSED: u32 = 0x444444;

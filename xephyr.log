@@ -1,0 +1,22 @@
+
+╔════════════════════════════════════════╗
+║   Window Manager con Submaps Started   ║
+╚════════════════════════════════════════╝
+
+📌 Keybindings disponibles:
+  MODO NORMAL:
+    Super+Return → Terminal
+    Super+Q      → Cerrar ventana
+    Super+N      → Entrar modo 'nav'
+    Super+A      → Entrar modo 'apps' (oneshot)
+
+  MODO NAV (persistente):
+    E     → Terminal
+    F     → Firefox
+    ESC   → Salir del modo
+
+  MODO APPS (oneshot):
+    T     → Terminal (auto-exit)
+    B     → Browser (auto-exit)
+
+Error: The X11 server closed the connection

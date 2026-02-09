@@ -1,0 +1,8 @@
+[package]
+name = "dxwm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.101"
+x11rb = { version = "0.13.2", features = ["all-extensions", "allow-unsafe-code"] }
