@@ -2,4 +2,4 @@
 
 * Inbox
 ** DONE Implement auto start script
-** TODO create workspaces
+** DONE create workspaces

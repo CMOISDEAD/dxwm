@@ -1,4 +1,4 @@
-use std::process::exit;
+use std::process::{exit, Command};
 
 use crate::keybindings::KeyAction;
 use crate::keyboard::{normalize_modifiers, KeyboardGrabber};
@@ -337,6 +337,27 @@ impl WindowManager {
 
         // === SUBMAP: ALERTS (oneshot) ===
         self.keybindings.add_submap("alerts".to_string(), true);
+
+        if let Some(key) = grabber.keysym_to_keycode(XK_L) {
+            self.keybindings.bind_in_mode(
+                "alerts",
+                key,
+                ModMask::default(),
+                KeyAction::Custom(|_| {
+                    Command::new("dmenu_run")
+                        .arg("-fn")
+                        .arg("cozette")
+                        .arg("-nb")
+                        .arg("#000000")
+                        .arg("-nf")
+                        .arg("#ffffff")
+                        .arg("-sb")
+                        .arg("#0000ff")
+                        .spawn()
+                        .ok();
+                }),
+            );
+        }
 
         if let Some(key) = grabber.keysym_to_keycode(XK_B) {
             self.keybindings.bind_in_mode(
