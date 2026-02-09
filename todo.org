@@ -1,5 +1,6 @@
 #+title: Todo
 
 * Inbox
-** DONE Implement auto start script
+** DONE implement auto start script
 ** DONE create workspaces
+** TODO implement Super+Tab for cycle between last workspace
