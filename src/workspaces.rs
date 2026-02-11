@@ -61,6 +61,7 @@ impl Workspace {
 pub struct WorkspaceManager {
     pub workspaces: Vec<Workspace>,
     pub current_workspace: u8,
+    pub last_workspace: u8,
 }
 
 impl WorkspaceManager {
@@ -74,6 +75,7 @@ impl WorkspaceManager {
         Self {
             workspaces,
             current_workspace: 1,
+            last_workspace: 1,
         }
     }
 
@@ -147,6 +149,7 @@ impl WindowManager {
         }
 
         println!("Switching to workspace {}", workspace_id);
+        self.workspaces.last_workspace = self.workspaces.current_workspace;
 
         for &window in self.clients().keys() {
             self.conn.unmap_window(window)?;
@@ -190,6 +193,12 @@ impl WindowManager {
 
             self.conn.flush()?;
         }
+
+        Ok(())
+    }
+
+    pub fn cycle_last_workspace(&mut self) -> Result<()> {
+        self.switch_to_workspace(self.workspaces.last_workspace);
 
         Ok(())
     }

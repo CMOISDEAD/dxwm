@@ -8,11 +8,9 @@ use x11rb::CURRENT_TIME;
 use crate::alerts::Alert;
 use crate::config::config::{BORDER_FOCUSED, BORDER_UNFOCUSED, BORDER_WIDTH};
 use crate::keybindings::KeyBindingManager;
-use crate::layout::LayoutConfig;
 use crate::utils::run_autostart;
 use crate::workspaces::WorkspaceManager;
 
-// TODO: remove layout_config, already implement on each workspace
 pub struct WindowManager {
     pub conn: RustConnection,
     pub screen_num: usize,
@@ -21,9 +19,6 @@ pub struct WindowManager {
     pub border_focused_color: u32,
     pub border_unfocused_color: u32,
     pub keybindings: KeyBindingManager,
-    pub layout_config: LayoutConfig,
-    // pub clients: HashMap<Window, ClientState>,
-    // pub focused_client: Option<Window>,
     pub alerts: Vec<Alert>,
     pub workspaces: WorkspaceManager,
     pub current_workspace: u16,
@@ -58,10 +53,7 @@ impl WindowManager {
             screen_num,
             root,
             keybindings: KeyBindingManager::new(),
-            // clients: HashMap::new(),
-            // focused_client: None,
             alerts: Vec::new(),
-            layout_config: LayoutConfig::default(),
             workspaces: WorkspaceManager::new(9),
             current_workspace: 0,
             last_workpace: 0,

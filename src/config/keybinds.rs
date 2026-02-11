@@ -75,9 +75,9 @@ impl WindowManager {
                 .bind_normal(key, ModMask::M4, KeyAction::Spawn("st".to_string()));
         }
 
-        if let Some(key) = grabber.keysym_to_keycode(XK_Q) {
+        if let Some(key) = grabber.keysym_to_keycode(XK_C) {
             self.keybindings
-                .bind_normal(key, ModMask::M4, KeyAction::CloseWindow);
+                .bind_normal(key, ModMask::M4 | ModMask::SHIFT, KeyAction::CloseWindow);
         }
 
         if let Some(key) = grabber.keysym_to_keycode(XK_N) {
@@ -176,7 +176,7 @@ impl WindowManager {
                 key,
                 ModMask::M4,
                 KeyAction::Custom(|wm| {
-                    wm.rotate_windows().ok();
+                    wm.cycle_last_workspace().ok();
                 }),
             );
         }

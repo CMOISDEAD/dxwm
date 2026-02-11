@@ -56,14 +56,17 @@ impl WindowManager {
     pub fn apply_master_stack_layout(&mut self) -> Result<()> {
         let screen = self.conn.setup().roots.get(0).unwrap();
 
-        let screen_x = self.layout_config.screen_padding;
-        let screen_y = self.layout_config.screen_padding;
-        let screen_width = screen.width_in_pixels as i16 - (self.layout_config.screen_padding * 2);
-        let screen_height =
-            screen.height_in_pixels as i16 - (self.layout_config.screen_padding * 2);
+        let workspace = self.workspaces.current();
 
-        let gap = self.layout_config.gap_size;
-        let nmaster = self.layout_config.nmaster;
+        let screen_x = workspace.layout_config.screen_padding;
+        let screen_y = workspace.layout_config.screen_padding;
+        let screen_width =
+            screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
+        let screen_height =
+            screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
+
+        let gap = workspace.layout_config.gap_size;
+        let nmaster = workspace.layout_config.nmaster;
 
         let mut windows: Vec<Window> = self.clients().keys().copied().collect();
         windows.sort();
@@ -84,7 +87,7 @@ impl WindowManager {
         let n_stack = n_windows - n_master;
 
         let master_width = if n_stack > 0 {
-            ((screen_width as f32 * self.layout_config.master_ratio) as i16) - gap
+            ((screen_width as f32 * workspace.layout_config.master_ratio) as i16) - gap
         } else {
             screen_width
         };
@@ -137,10 +140,11 @@ impl WindowManager {
     pub fn apply_monocle_layout(&mut self) -> Result<()> {
         let screen = self.conn.setup().roots.get(0).unwrap();
 
-        let x = self.layout_config.screen_padding;
-        let y = self.layout_config.screen_padding;
-        let width = screen.width_in_pixels as i16 - (self.layout_config.screen_padding * 2);
-        let height = screen.height_in_pixels as i16 - (self.layout_config.screen_padding * 2);
+        let workspace = self.workspaces.current();
+        let x = workspace.layout_config.screen_padding;
+        let y = workspace.layout_config.screen_padding;
+        let width = screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
+        let height = screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
 
         let windows: Vec<Window> = self.clients().keys().copied().collect();
 
@@ -161,11 +165,14 @@ impl WindowManager {
     pub fn apply_grid_layout(&mut self) -> Result<()> {
         let screen = self.conn.setup().roots.get(0).unwrap();
 
-        let screen_x = self.layout_config.screen_padding;
-        let screen_y = self.layout_config.screen_padding;
-        let screen_width = screen.width_in_pixels as i16 - (self.layout_config.screen_padding * 2);
+        let workspace = self.workspaces.current();
+
+        let screen_x = workspace.layout_config.screen_padding;
+        let screen_y = workspace.layout_config.screen_padding;
+        let screen_width =
+            screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
         let screen_height =
-            screen.height_in_pixels as i16 - (self.layout_config.screen_padding * 2);
+            screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
 
         let n_windows = self.clients().len();
         if n_windows == 0 {
@@ -175,7 +182,7 @@ impl WindowManager {
         let cols = (n_windows as f32).sqrt().ceil() as usize;
         let rows = (n_windows as f32 / cols as f32).ceil() as usize;
 
-        let gap = self.layout_config.gap_size;
+        let gap = workspace.layout_config.gap_size;
         let cell_width = (screen_width - (gap * (cols as i16 - 1))) / cols as i16;
         let cell_height = (screen_height - (gap * (rows as i16 - 1))) / rows as i16;
 
@@ -249,16 +256,18 @@ impl WindowManager {
     pub fn increase_master_ratio(&mut self) -> Result<()> {
         let workspace = self.workspaces.current_mut();
 
-        workspace.layout_config.master_ratio = (self.layout_config.master_ratio + 0.05).min(0.95);
-        println!("Master ratio: {:.2}", self.layout_config.master_ratio);
+        workspace.layout_config.master_ratio =
+            (workspace.layout_config.master_ratio + 0.05).min(0.95);
+        println!("Master ratio: {:.2}", workspace.layout_config.master_ratio);
         self.layout()
     }
 
     pub fn decrease_master_ratio(&mut self) -> Result<()> {
         let workspace = self.workspaces.current_mut();
 
-        workspace.layout_config.master_ratio = (self.layout_config.master_ratio - 0.05).max(0.05);
-        println!("Master ratio: {:.2}", self.layout_config.master_ratio);
+        workspace.layout_config.master_ratio =
+            (workspace.layout_config.master_ratio - 0.05).max(0.05);
+        println!("Master ratio: {:.2}", workspace.layout_config.master_ratio);
         self.layout()
     }
 
@@ -266,7 +275,7 @@ impl WindowManager {
         let workspace = self.workspaces.current_mut();
 
         workspace.layout_config.nmaster += 1;
-        println!("Number of masters: {}", self.layout_config.nmaster);
+        println!("Number of masters: {}", workspace.layout_config.nmaster);
         self.layout()
     }
 
@@ -274,8 +283,8 @@ impl WindowManager {
         let workspace = self.workspaces.current_mut();
 
         if workspace.layout_config.nmaster > 1 {
-            self.layout_config.nmaster -= 1;
-            println!("Number of masters: {}", self.layout_config.nmaster);
+            workspace.layout_config.nmaster -= 1;
+            println!("Number of masters: {}", workspace.layout_config.nmaster);
             self.layout()?;
         }
         Ok(())
@@ -285,15 +294,19 @@ impl WindowManager {
         let workspace = self.workspaces.current_mut();
 
         workspace.layout_config.gap_size += 5;
-        println!("Gap size: {}", self.layout_config.gap_size);
+        println!("Gap size: {}", workspace.layout_config.gap_size);
         self.layout()
     }
 
     pub fn decrease_gap(&mut self) -> Result<()> {
         let workspace = self.workspaces.current_mut();
 
-        workspace.layout_config.gap_size = (self.layout_config.gap_size - 5).max(0);
-        println!("Gap size: {}", self.layout_config.gap_size);
+        let gap_size = workspace.layout_config.gap_size;
+        workspace.layout_config.gap_size = (gap_size - 5).max(0);
+        println!(
+            "Gap size: {}",
+            self.workspaces.current().layout_config.gap_size
+        );
         self.layout()
     }
 
