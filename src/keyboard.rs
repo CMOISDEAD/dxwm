@@ -93,6 +93,23 @@ impl<'a, C: Connection> KeyboardGrabber<'a, C> {
         Ok(())
     }
 
+    /// Graba TODAS las teclas (para detectar teclas no mapeadas en submaps)
+    pub fn grab_all_keys(&self) -> Result<()> {
+        self.conn
+            .grab_key(
+                false,
+                self.root,
+                ModMask::default(), // Sin modificadores
+                0,                  // keycode 0 = TODAS las teclas
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?
+            .check()
+            .context("Failed to grab all keys")?;
+
+        Ok(())
+    }
+
     /// Libera todos los grabs
     pub fn ungrab_all_keys(&self) -> Result<()> {
         self.conn

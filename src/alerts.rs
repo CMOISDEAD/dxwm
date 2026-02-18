@@ -6,6 +6,7 @@ use x11rb::protocol::xproto::{
 };
 use x11rb::COPY_DEPTH_FROM_PARENT;
 
+use crate::config::config::{BACKGROUND, BORDER_FOCUSED, FOREGROUND, MARGIN};
 use crate::wm::WindowManager;
 
 struct Rect {
@@ -31,6 +32,7 @@ pub struct Alert {
     pub created_at: Instant,
 }
 
+#[allow(dead_code)]
 impl WindowManager {
     pub fn draw_alert(&mut self, msg: String) -> Result<()> {
         self.clear_alerts()?;
@@ -51,14 +53,19 @@ impl WindowManager {
             WindowClass::INPUT_OUTPUT,
             0,
             &CreateWindowAux::new()
-                .background_pixel(0x000000)
-                .border_pixel(0x0000ff)
+                .background_pixel(BACKGROUND)
+                .border_pixel(BORDER_FOCUSED)
                 .override_redirect(1)
                 .event_mask(EventMask::EXPOSURE),
         )?;
 
-        self.conn
-            .create_gc(gc_id, alert_id, &CreateGCAux::new().foreground(0xffffff))?;
+        self.conn.create_gc(
+            gc_id,
+            alert_id,
+            &CreateGCAux::new()
+                .foreground(FOREGROUND)
+                .background(BACKGROUND),
+        )?;
 
         self.conn.map_window(alert_id)?;
 
@@ -137,7 +144,7 @@ impl WindowManager {
             height: win_h,
         };
         let screen_geom = self.conn.setup().roots.get(0).unwrap();
-        let margin = 10;
+        let margin = MARGIN;
 
         match pos {
             Position::TopLeft => {
@@ -154,11 +161,11 @@ impl WindowManager {
             }
             Position::BottomLeft => {
                 rect.x = margin;
-                rect.y = screen_geom.height_in_pixels as u32 - (margin as u32 + win_h);
+                rect.y = screen_geom.height_in_pixels as u32 - (margin + win_h);
             }
             Position::BottomRight => {
-                rect.x = screen_geom.width_in_pixels as u32 - (margin as u32 + win_w);
-                rect.y = screen_geom.height_in_pixels as u32 - (margin as u32 + win_h);
+                rect.x = screen_geom.width_in_pixels as u32 - (margin + win_w);
+                rect.y = screen_geom.height_in_pixels as u32 - (margin + win_h);
             }
         };
 

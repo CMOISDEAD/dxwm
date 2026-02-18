@@ -3,4 +3,6 @@
 * Inbox
 ** DONE implement auto start script
 ** DONE create workspaces
-** TODO implement Super+Tab for cycle between last workspace
+** DONE implement Super+Tab for cycle between last workspace
+** TODO implement theme switcher
+** DONE improve alerts and sub keybindings behavior

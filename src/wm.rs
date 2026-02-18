@@ -6,6 +6,7 @@ use x11rb::rust_connection::RustConnection;
 use x11rb::CURRENT_TIME;
 
 use crate::alerts::Alert;
+use crate::atoms::Atoms;
 use crate::config::config::{BORDER_FOCUSED, BORDER_UNFOCUSED, BORDER_WIDTH};
 use crate::keybindings::KeyBindingManager;
 use crate::utils::run_autostart;
@@ -23,6 +24,7 @@ pub struct WindowManager {
     pub workspaces: WorkspaceManager,
     pub current_workspace: u16,
     pub last_workpace: u16,
+    pub atoms: Atoms,
 }
 
 impl WindowManager {
@@ -48,6 +50,8 @@ impl WindowManager {
 
         conn.flush()?;
 
+        let atoms = Atoms::new(&conn)?;
+
         Ok(Self {
             conn,
             screen_num,
@@ -60,6 +64,7 @@ impl WindowManager {
             border_width: BORDER_WIDTH,
             border_focused_color: BORDER_FOCUSED,
             border_unfocused_color: BORDER_UNFOCUSED,
+            atoms,
         })
     }
 

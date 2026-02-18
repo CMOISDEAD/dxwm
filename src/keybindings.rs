@@ -106,6 +106,7 @@ impl KeyBindingManager {
                 }
             }
         }
+
         None
     }
 
@@ -134,5 +135,9 @@ impl KeyBindingManager {
 
     pub fn is_normal_mode(&self) -> bool {
         self.current_mode.is_none()
+    }
+
+    pub fn is_in_submap(&self) -> bool {
+        self.current_mode.is_some()
     }
 }
