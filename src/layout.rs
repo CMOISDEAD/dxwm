@@ -246,10 +246,6 @@ impl WindowManager {
             "Layout: {:?}",
             self.workspaces.current().layout_config.current
         );
-        self.draw_alert(format!(
-            "Layout: {:?}",
-            self.workspaces.current().layout_config.current
-        ))?;
         self.layout()
     }
 

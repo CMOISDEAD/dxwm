@@ -1,6 +1,5 @@
 use std::process::{exit, Command};
 
-use crate::config::config::{BACKGROUND, BORDER_FOCUSED, FOREGROUND, SELECTED};
 use crate::keybindings::KeyAction;
 use crate::keyboard::{normalize_modifiers, KeyboardGrabber};
 use crate::utils::*;
@@ -10,7 +9,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::KeyPressEvent;
 use x11rb::protocol::xproto::ModMask;
 
-use super::config::{launch_dmenu, FILEMANAGER_APP, FONT_NAME, TERMINAL_APP};
+use super::config::{launch_dmenu, FILEMANAGER_APP, TERMINAL_APP};
 
 impl WindowManager {
     pub fn setup_keybindings(&mut self) -> Result<()> {
@@ -113,6 +112,11 @@ impl WindowManager {
                 ModMask::M4,
                 KeyAction::Custom(|wm| {
                     wm.next_layout().ok();
+                    wm.draw_alert(format!(
+                        "[LAY] {:?}",
+                        wm.workspaces.current().layout_config.current
+                    ))
+                    .ok();
                 }),
             );
         }
@@ -224,9 +228,9 @@ impl WindowManager {
                 KeyAction::Custom(|wm| {
                     get_command_output("pactl set-sink-volume @DEFAULT_SINK@ +10%");
                     let percentage = get_volume();
+                    let status = if is_muted() { "MUTED" } else { "VOL" };
 
-                    let status = if is_muted() { "Muted" } else { "Vol" };
-                    wm.draw_alert(format!("{}: {}%", status, percentage)).ok();
+                    wm.draw_alert(format!("[{}] {}%", status, percentage)).ok();
                 }),
             );
         }
@@ -238,9 +242,9 @@ impl WindowManager {
                 KeyAction::Custom(|wm| {
                     get_command_output("pactl set-sink-volume @DEFAULT_SINK@ -10%");
                     let percentage = get_volume();
+                    let status = if is_muted() { "MUTED" } else { "VOL" };
 
-                    let status = if is_muted() { "Muted" } else { "Vol" };
-                    wm.draw_alert(format!("{}: {}%", status, percentage)).ok();
+                    wm.draw_alert(format!("[{}] {}%", status, percentage)).ok();
                 }),
             );
         }
@@ -251,11 +255,10 @@ impl WindowManager {
                 ModMask::default(),
                 KeyAction::Custom(|wm| {
                     let _ = get_command_output("pamixer --toggle-mute");
-
                     let percentage = get_volume();
-                    let status = if is_muted() { "Muted" } else { "Vol" };
+                    let status = if is_muted() { "MUTED" } else { "VOL" };
 
-                    wm.draw_alert(format!("{}: {}%", status, percentage)).ok();
+                    wm.draw_alert(format!("[{}] {}%", status, percentage)).ok();
                 }),
             );
         }
@@ -270,13 +273,8 @@ impl WindowManager {
                     let muted =
                         get_command_output("pamixer --default-source --get-mute").trim() == "true";
 
-                    let msg = if muted {
-                        "Mic: muted".to_string()
-                    } else {
-                        "Mic: active".to_string()
-                    };
-
-                    wm.draw_alert(msg).ok();
+                    let msg = if muted { "[MIC] MUTED" } else { "[MIC] LIVE" };
+                    wm.draw_alert(msg.to_string()).ok();
                 }),
             );
         }
@@ -294,8 +292,7 @@ impl WindowManager {
                         .wait()
                         .ok();
 
-                    wm.draw_alert("Screenshot copied to cliboard".to_string())
-                        .ok();
+                    wm.draw_alert("[SCR] FULL".to_string()).ok();
                 }),
             );
         }
@@ -313,8 +310,7 @@ impl WindowManager {
                         .wait()
                         .ok();
 
-                    wm.draw_alert("Screenshot area copied to cliboard".to_string())
-                        .ok();
+                    wm.draw_alert("[SCR] AREA".to_string()).ok();
                 }),
             );
         }
@@ -367,8 +363,8 @@ impl WindowManager {
                 key,
                 ModMask::default(),
                 KeyAction::Custom(|wm| {
-                    KeyAction::Spawn("emacs".to_string());
-                    wm.draw_alert(String::from("Opening Emacs...")).ok();
+                    Command::new("emacsclient").arg("-c").spawn().ok();
+                    wm.draw_alert("[EMACS] SPAWN".to_string()).ok(); // TODO: remove???
                 }),
             );
         }
@@ -419,19 +415,8 @@ impl WindowManager {
                         _ => "UNK",
                     };
 
-                    wm.draw_alert(format!("{}: {}", label, percentage)).ok();
-                }),
-            );
-        }
-
-        if let Some(key) = grabber.keysym_to_keycode(XK_A) {
-            self.keybindings.bind_in_mode(
-                "alerts",
-                key,
-                ModMask::default(),
-                KeyAction::Custom(|wm| {
-                    let date = get_command_output("date '+%a %d %b %H:%M'");
-                    wm.draw_alert(format!("{}", date)).ok();
+                    wm.draw_alert(format!("[{}] {}%", label, percentage.trim()))
+                        .ok();
                 }),
             );
         }
@@ -443,9 +428,10 @@ impl WindowManager {
                 ModMask::default(),
                 KeyAction::Custom(|wm| {
                     let percentage = get_command_output("pamixer --get-volume");
-                    let status = if is_muted() { "Muted" } else { "Vol" };
+                    let status = if is_muted() { "MUTED" } else { "VOL" };
 
-                    wm.draw_alert(format!("{}: {}%", status, percentage)).ok();
+                    wm.draw_alert(format!("[{}] {}%", status, percentage.trim()))
+                        .ok();
                 }),
             );
         }
@@ -457,7 +443,8 @@ impl WindowManager {
                 ModMask::default(),
                 KeyAction::Custom(|wm| {
                     let date = get_command_output("date '+%a %d %b %H:%M'");
-                    wm.draw_alert(format!("{}", date)).ok();
+
+                    wm.draw_alert(format!("[DATE] {}", date.trim())).ok();
                 }),
             );
         }
@@ -479,9 +466,8 @@ impl WindowManager {
         grabber.ungrab_all_keys()?;
 
         if self.keybindings.is_in_submap() {
-            // NOTE: We capture all keys to properly handle presses of unmapped keys.
             println!("In submap mode - grabbing ALL keys");
-            grabber.grab_all_keys()?;
+            grabber.grab_all_keys(setup)?;
         } else {
             let bindings = self.keybindings.active_bindings();
             for binding in bindings {
@@ -499,19 +485,15 @@ impl WindowManager {
         match action {
             KeyAction::Spawn(cmd) => {
                 println!("▶ Spawning: {}", cmd);
-                std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&cmd)
-                    .spawn()
-                    .ok();
+                Command::new("sh").arg("-c").arg(&cmd).spawn().ok();
             }
             KeyAction::EnterMode(mode) => {
-                self.draw_alert(format!("Mode: {}", mode.to_ascii_uppercase()))?;
+                self.draw_alert(format!("[MODE] {}", mode.to_ascii_uppercase()))?;
                 self.keybindings.enter_mode(mode);
                 self.update_grabs()?;
             }
             KeyAction::ExitMode => {
-                self.draw_alert(String::from("Mode: NORMAL"))?;
+                self.draw_alert("[MODE] NORMAL".to_string())?;
                 self.keybindings.exit_mode();
                 self.update_grabs()?;
             }
@@ -531,9 +513,11 @@ impl WindowManager {
             }
             KeyAction::SwitchWorkspace(index) => {
                 self.switch_to_workspace(index)?;
+                self.draw_alert(format!("[WS] {}", index))?;
             }
             KeyAction::MoveToWorkspace(index) => {
                 self.move_focused_to_workspace(index)?;
+                self.draw_alert(format!("[MVWS] {}", index))?;
             }
             KeyAction::Quit => {
                 exit(200);
@@ -559,7 +543,7 @@ impl WindowManager {
         } else {
             if self.keybindings.is_in_submap() {
                 println!("✗ Key not mapped in current mode, exiting...");
-                self.draw_alert("Invalid key - exiting mode".to_string())?;
+                self.draw_alert("[ERR] KEY".to_string())?;
                 self.keybindings.exit_mode();
                 self.update_grabs()?;
             } else {

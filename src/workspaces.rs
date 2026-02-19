@@ -168,8 +168,6 @@ impl WindowManager {
 
         self.layout()?;
 
-        self.draw_alert(format!("Workspace: {}", workspace_id))?;
-
         self.conn.flush()?;
         Ok(())
     }
@@ -188,8 +186,6 @@ impl WindowManager {
                 .move_window_to_workspace(window, workspace_id);
 
             self.layout()?;
-
-            self.draw_alert(format!("Moved to workspace: {}", workspace_id))?;
 
             self.conn.flush()?;
         }
