@@ -1,4 +1,5 @@
 use crate::clients::ClientState;
+use crate::config::config::MARGIN;
 use crate::wm::WindowManager;
 use anyhow::Result;
 use x11rb::connection::Connection;
@@ -26,8 +27,8 @@ impl Default for LayoutConfig {
             current: LayoutType::MasterStack,
             master_ratio: 0.5,
             nmaster: 1,
-            gap_size: 10,
-            screen_padding: 10,
+            gap_size: MARGIN as i16,
+            screen_padding: MARGIN as i16,
         }
     }
 }
