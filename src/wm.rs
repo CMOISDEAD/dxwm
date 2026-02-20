@@ -22,8 +22,6 @@ pub struct WindowManager {
     pub keybindings: KeyBindingManager,
     pub alerts: Vec<Alert>,
     pub workspaces: WorkspaceManager,
-    pub current_workspace: u16,
-    pub last_workpace: u16,
     pub atoms: Atoms,
 }
 
@@ -41,7 +39,8 @@ impl WindowManager {
                 | EventMask::SUBSTRUCTURE_NOTIFY
                 | EventMask::BUTTON_PRESS
                 | EventMask::ENTER_WINDOW
-                | EventMask::STRUCTURE_NOTIFY,
+                | EventMask::STRUCTURE_NOTIFY
+                | EventMask::PROPERTY_CHANGE,
         );
 
         conn.change_window_attributes(root, &change)?
@@ -59,8 +58,6 @@ impl WindowManager {
             keybindings: KeyBindingManager::new(),
             alerts: Vec::new(),
             workspaces: WorkspaceManager::new(9),
-            current_workspace: 0,
-            last_workpace: 0,
             border_width: BORDER_WIDTH,
             border_focused_color: BORDER_FOCUSED,
             border_unfocused_color: BORDER_UNFOCUSED,
@@ -123,6 +120,23 @@ impl WindowManager {
                             if let Err(err) = self.redraw_alert(alert) {
                                 eprintln!("Error redrawing alert: {}", err);
                             }
+                        }
+                    }
+                }
+                Event::ClientMessage(e) => {
+                    if e.type_ == self.atoms.net_wm_state {
+                        let data = e.data.as_data32();
+
+                        let action = data[0];
+                        let state1 = data[1];
+                        let state2 = data[2];
+
+                        // TODO: call a method to determine if the window is called as fullscreen or float
+
+                        if let Err(err) =
+                            self.handle_state_request(e.window, action, state1, state2)
+                        {
+                            eprintln!("Error handling state request: {}", err);
                         }
                     }
                 }

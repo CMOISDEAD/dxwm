@@ -1,9 +1,5 @@
 use anyhow::Result;
-use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ChangeWindowAttributesAux, ClientMessageData, ClientMessageEvent,
-    ConfigureWindowAux, ConnectionExt, EventMask, InputFocus, StackMode, Window,
-    CLIENT_MESSAGE_EVENT,
-};
+use x11rb::protocol::xproto::*;
 use x11rb::CURRENT_TIME;
 use x11rb::{connection::Connection, protocol::xproto::MapRequestEvent};
 
@@ -15,7 +11,59 @@ pub struct ClientState {
     pub y: i16,
     pub width: u16,
     pub height: u16,
-    pub workspace: u16,
+    pub is_fullscreen: bool,
+    pub saved_x: i16,
+    pub saved_y: i16,
+    pub saved_width: u16,
+    pub saved_height: u16,
+}
+
+impl Default for ClientState {
+    fn default() -> Self {
+        ClientState {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+            is_fullscreen: false,
+            saved_x: 0,
+            saved_y: 0,
+            saved_width: 100,
+            saved_height: 100,
+        }
+    }
+}
+
+impl ClientState {
+    pub fn new(x: i16, y: i16, width: u16, height: u16) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            is_fullscreen: false,
+            saved_x: x,
+            saved_y: y,
+            saved_width: width,
+            saved_height: height,
+        }
+    }
+
+    pub fn save_geometry(&mut self) {
+        if !self.is_fullscreen {
+            self.saved_x = self.x;
+            self.saved_y = self.y;
+            self.saved_width = self.width;
+            self.saved_height = self.height;
+        }
+    }
+
+    pub fn restore_geometry(&mut self) {
+        self.x = self.saved_x;
+        self.y = self.saved_y;
+        self.width = self.saved_width;
+        self.height = self.saved_height;
+    }
 }
 
 impl WindowManager {
@@ -40,13 +88,7 @@ impl WindowManager {
 
         println!("Managing new client: {}", client);
 
-        let initial_state = ClientState {
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 100,
-            workspace: self.current_workspace,
-        };
+        let initial_state = ClientState::default();
 
         self.workspaces
             .current_mut()
@@ -58,6 +100,36 @@ impl WindowManager {
                 .event_mask(EventMask::ENTER_WINDOW | EventMask::FOCUS_CHANGE)
                 .border_pixel(self.border_unfocused_color),
         )?;
+
+        let mut should_fullscreen = false;
+
+        if let Ok(reply) = self
+            .conn
+            .get_property(
+                false,
+                client,
+                self.atoms.net_wm_state,
+                AtomEnum::ATOM,
+                0,
+                1024,
+            )?
+            .reply()
+        {
+            if let Some(atoms) = reply.value32() {
+                for atom in atoms {
+                    if atom == self.atoms.net_wm_state_fullscreen {
+                        should_fullscreen = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if should_fullscreen {
+            self.conn.map_window(client)?;
+            self.fullscreen_window(client)?;
+            return Ok(());
+        }
 
         self.conn.configure_window(
             client,
@@ -78,7 +150,6 @@ impl WindowManager {
         Ok(())
     }
 
-    // focus_next corregido con ciclo y bordes
     pub fn focus_next(&mut self) -> Result<()> {
         if self.clients().is_empty() {
             return Ok(());
@@ -97,7 +168,6 @@ impl WindowManager {
             0
         };
 
-        // Ciclar: si estamos en la última, volver a la primera
         let next_index = (current_index + 1) % windows.len();
         let next_window = windows[next_index];
 
@@ -106,13 +176,11 @@ impl WindowManager {
         self.conn
             .set_input_focus(InputFocus::PARENT, next_window, CURRENT_TIME)?;
 
-        // Traer ventana al frente
         self.conn.configure_window(
             next_window,
             &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
         )?;
 
-        // Actualizar bordes
         self.update_window_borders()?;
 
         self.restack_alerts()?;
@@ -283,6 +351,119 @@ impl WindowManager {
         if let Some(window) = self.focused_client() {
             self.close_window(window)?;
         }
+        Ok(())
+    }
+
+    pub fn toggle_fullscreen(&mut self, window: Window) -> Result<()> {
+        if let Some(state) = self.clients_mut().get_mut(&window) {
+            if state.is_fullscreen {
+                self.unfullscreen_window(window)?;
+            } else {
+                self.fullscreen_window(window)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn fullscreen_window(&mut self, window: Window) -> Result<()> {
+        println!("Setting window {} to fullscreen", window);
+
+        let geometry = {
+            let screen = self.conn.setup().roots.get(0).unwrap();
+            (screen.width_in_pixels, screen.height_in_pixels)
+        };
+
+        let (width, height) = geometry;
+
+        self.conn.configure_window(
+            window,
+            &ConfigureWindowAux::new()
+                .x(0)
+                .y(0)
+                .width(width as u32)
+                .height(height as u32)
+                .border_width(0)
+                .stack_mode(StackMode::ABOVE),
+        )?;
+
+        self.conn.change_property(
+            PropMode::REPLACE,
+            window,
+            self.atoms.net_wm_state,
+            AtomEnum::ATOM,
+            8,
+            1,
+            &[self.atoms.net_wm_state_fullscreen as u8],
+        )?;
+
+        self.conn.flush()?;
+
+        if let Some(state) = self.clients_mut().get_mut(&window) {
+            state.save_geometry();
+            state.is_fullscreen = true;
+
+            state.x = 0;
+            state.y = 0;
+            state.width = width;
+            state.height = height;
+        }
+
+        Ok(())
+    }
+
+    pub fn unfullscreen_window(&mut self, window: Window) -> Result<()> {
+        println!("Removing fullscren from window {}", window);
+
+        if let Some(state) = self.clients_mut().get_mut(&window) {
+            state.is_fullscreen = false;
+
+            let saved_x = state.saved_x;
+            let saved_y = state.saved_y;
+            let saved_width = state.saved_width;
+            let saved_height = state.saved_height;
+
+            state.restore_geometry();
+
+            self.conn.configure_window(
+                window,
+                &ConfigureWindowAux::new()
+                    .x(saved_x as i32)
+                    .y(saved_y as i32)
+                    .width(saved_width as u32)
+                    .height(saved_height as u32)
+                    .border_width(self.border_width),
+            )?;
+
+            self.conn.delete_property(window, self.atoms.net_wm_state)?;
+
+            self.conn.flush()?;
+            self.layout()?;
+        }
+
+        Ok(())
+    }
+
+    /// manage change state request
+    /// action: 0 = remove, 1 = add, 2 = toggle
+    pub fn handle_state_request(
+        &mut self,
+        window: Window,
+        action: u32,
+        state1: Atom,
+        state2: Atom,
+    ) -> Result<()> {
+        if state1 == self.atoms.net_wm_state_fullscreen
+            || state2 == self.atoms.net_wm_state_fullscreen
+        {
+            match action {
+                0 => self.unfullscreen_window(window)?,
+                1 => self.fullscreen_window(window)?,
+                2 => self.toggle_fullscreen(window)?,
+                _ => {}
+            }
+        }
+
         Ok(())
     }
 }

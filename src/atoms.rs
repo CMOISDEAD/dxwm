@@ -8,6 +8,9 @@ pub struct Atoms {
     pub wm_delete_window: Atom,
     pub wm_state: Atom,
     pub wm_take_focus: Atom,
+    pub net_wm_state: Atom,
+    pub net_wm_state_fullscreen: Atom,
+    pub net_active_window: Atom,
 }
 
 impl Atoms {
@@ -36,11 +39,32 @@ impl Atoms {
             .context("Failed to intern WM_TAKE_FOCUS")?
             .atom;
 
+        let net_wm_state = conn
+            .intern_atom(false, b"_NET_WM_STATE")?
+            .reply()
+            .context("Failed to intern _NET_WM_STATE")?
+            .atom;
+
+        let net_wm_state_fullscreen = conn
+            .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")?
+            .reply()
+            .context("Failed to intern _NET_WM_STATE_FULLSCREEN")?
+            .atom;
+
+        let net_active_window = conn
+            .intern_atom(false, b"_NET_ACTIVE_WINDOW")?
+            .reply()
+            .context("Failed to intern _NET_ACTIVE_WINDOW")?
+            .atom;
+
         Ok(Self {
             wm_protocols,
             wm_delete_window,
             wm_state,
             wm_take_focus,
+            net_wm_state,
+            net_wm_state_fullscreen,
+            net_active_window,
         })
     }
 }

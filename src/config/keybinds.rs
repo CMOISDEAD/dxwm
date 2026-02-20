@@ -181,6 +181,18 @@ impl WindowManager {
             );
         }
 
+        if let Some(key) = grabber.keysym_to_keycode(XK_F) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4,
+                KeyAction::Custom(|wm| {
+                    if let Some(window) = wm.focused_client() {
+                        wm.toggle_fullscreen(window).ok();
+                    }
+                }),
+            );
+        }
+
         if let Some(key) = grabber.keysym_to_keycode(XK_G) {
             self.keybindings.bind_normal(
                 key,

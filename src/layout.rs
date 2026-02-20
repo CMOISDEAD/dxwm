@@ -1,3 +1,4 @@
+use crate::clients::ClientState;
 use crate::wm::WindowManager;
 use anyhow::Result;
 use x11rb::connection::Connection;
@@ -8,8 +9,6 @@ use x11rb::CURRENT_TIME;
 pub enum LayoutType {
     MasterStack,
     Monocle,
-    Floating,
-    Grid,
 }
 
 #[derive(Debug, Clone)]
@@ -35,17 +34,21 @@ impl Default for LayoutConfig {
 
 impl WindowManager {
     pub fn layout(&mut self) -> Result<()> {
-        if self.clients().is_empty() {
+        let non_fullscreen_clients: std::collections::HashMap<Window, ClientState> = self
+            .clients()
+            .iter()
+            .filter(|(_, state)| !state.is_fullscreen)
+            .map(|(&w, s)| (w, s.clone()))
+            .collect();
+
+        if non_fullscreen_clients.is_empty() {
             return Ok(());
         }
-
         let workspace_layout = self.workspaces.current().layout_config.clone();
 
         match workspace_layout.current {
             LayoutType::MasterStack => self.apply_master_stack_layout()?,
             LayoutType::Monocle => self.apply_monocle_layout()?,
-            LayoutType::Floating => {}
-            LayoutType::Grid => self.apply_grid_layout()?,
         }
 
         self.restack_alerts()?;
@@ -68,7 +71,14 @@ impl WindowManager {
         let gap = workspace.layout_config.gap_size;
         let nmaster = workspace.layout_config.nmaster;
 
-        let mut windows: Vec<Window> = self.clients().keys().copied().collect();
+        // let mut windows: Vec<Window> = self.clients().keys().copied().collect();
+        let mut windows: Vec<Window> = self
+            .clients()
+            .iter()
+            .filter(|(_, state)| !state.is_fullscreen)
+            .map(|(&w, _)| w)
+            .collect();
+
         windows.sort();
 
         let n_windows = windows.len();
@@ -146,7 +156,13 @@ impl WindowManager {
         let width = screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
         let height = screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
 
-        let windows: Vec<Window> = self.clients().keys().copied().collect();
+        // let windows: Vec<Window> = self.clients().keys().copied().collect();
+        let windows: Vec<Window> = self
+            .clients()
+            .iter()
+            .filter(|(_, state)| !state.is_fullscreen)
+            .map(|(&w, _)| w)
+            .collect();
 
         for window in windows {
             self.configure_client(window, x, y, width, height)?;
@@ -157,46 +173,6 @@ impl WindowManager {
                 focused,
                 &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
             )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn apply_grid_layout(&mut self) -> Result<()> {
-        let screen = self.conn.setup().roots.get(0).unwrap();
-
-        let workspace = self.workspaces.current();
-
-        let screen_x = workspace.layout_config.screen_padding;
-        let screen_y = workspace.layout_config.screen_padding;
-        let screen_width =
-            screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
-        let screen_height =
-            screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
-
-        let n_windows = self.clients().len();
-        if n_windows == 0 {
-            return Ok(());
-        }
-
-        let cols = (n_windows as f32).sqrt().ceil() as usize;
-        let rows = (n_windows as f32 / cols as f32).ceil() as usize;
-
-        let gap = workspace.layout_config.gap_size;
-        let cell_width = (screen_width - (gap * (cols as i16 - 1))) / cols as i16;
-        let cell_height = (screen_height - (gap * (rows as i16 - 1))) / rows as i16;
-
-        let mut windows: Vec<Window> = self.clients().keys().copied().collect();
-        windows.sort();
-
-        for (i, &window) in windows.iter().enumerate() {
-            let col = i % cols;
-            let row = i / cols;
-
-            let x = screen_x + (col as i16 * (cell_width + gap));
-            let y = screen_y + (row as i16 * (cell_height + gap));
-
-            self.configure_client(window, x, y, cell_width, cell_height)?;
         }
 
         Ok(())
@@ -238,9 +214,7 @@ impl WindowManager {
 
         workspace.layout_config.current = match workspace.layout_config.current {
             LayoutType::MasterStack => LayoutType::Monocle,
-            LayoutType::Monocle => LayoutType::Grid,
-            LayoutType::Grid => LayoutType::Floating,
-            LayoutType::Floating => LayoutType::MasterStack,
+            LayoutType::Monocle => LayoutType::MasterStack,
         };
         println!(
             "Layout: {:?}",
