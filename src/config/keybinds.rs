@@ -171,6 +171,16 @@ impl WindowManager {
             );
         }
 
+        if let Some(key) = grabber.keysym_to_keycode(XK_B) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4,
+                KeyAction::Custom(|wm| {
+                    wm.banish().ok();
+                }),
+            );
+        }
+
         if let Some(key) = grabber.keysym_to_keycode(XK_G) {
             self.keybindings.bind_normal(
                 key,

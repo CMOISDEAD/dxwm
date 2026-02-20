@@ -1,5 +1,6 @@
 mod alerts;
 mod atoms;
+mod banish;
 mod clients;
 mod config;
 mod keybindings;
