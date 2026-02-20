@@ -522,12 +522,14 @@ impl WindowManager {
                 func(self);
             }
             KeyAction::SwitchWorkspace(index) => {
-                self.switch_to_workspace(index)?;
-                self.draw_alert(format!("[WS] {}", index))?;
+                if self.switch_to_workspace(index)? {
+                    self.draw_alert(format!("[WS] {}", index))?;
+                }
             }
             KeyAction::MoveToWorkspace(index) => {
-                self.move_focused_to_workspace(index)?;
-                self.draw_alert(format!("[MVWS] {}", index))?;
+                if self.move_focused_to_workspace(index)? {
+                    self.draw_alert(format!("[MVWS] {}", index))?;
+                }
             }
             KeyAction::Quit => {
                 exit(200);

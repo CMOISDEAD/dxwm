@@ -139,13 +139,13 @@ impl WorkspaceManager {
 }
 
 impl WindowManager {
-    pub fn switch_to_workspace(&mut self, workspace_id: u8) -> Result<()> {
+    pub fn switch_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
         if workspace_id < 1 || workspace_id > self.workspaces.count() as u8 {
-            return Ok(());
+            return Ok(false);
         }
 
         if self.workspaces.current_workspace == workspace_id {
-            return Ok(());
+            return Ok(false);
         }
 
         println!("Switching to workspace {}", workspace_id);
@@ -169,12 +169,20 @@ impl WindowManager {
         self.layout()?;
 
         self.conn.flush()?;
-        Ok(())
+        Ok(true)
     }
 
-    pub fn move_focused_to_workspace(&mut self, workspace_id: u8) -> Result<()> {
+    pub fn move_focused_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
+        if self.workspaces.current_workspace == workspace_id {
+            return Ok(false);
+        }
+
         if workspace_id < 1 || workspace_id > self.workspaces.count() as u8 {
-            return Ok(());
+            return Ok(false);
+        }
+
+        if self.focused_client().is_none() {
+            return Ok(false);
         }
 
         if let Some(window) = self.focused_client() {
@@ -190,11 +198,11 @@ impl WindowManager {
             self.conn.flush()?;
         }
 
-        Ok(())
+        Ok(true)
     }
 
     pub fn cycle_last_workspace(&mut self) -> Result<()> {
-        self.switch_to_workspace(self.workspaces.last_workspace);
+        let _ = self.switch_to_workspace(self.workspaces.last_workspace);
 
         Ok(())
     }
