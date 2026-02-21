@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::clients::ClientState;
 use crate::config::config::MARGIN;
 use crate::wm::WindowManager;
@@ -35,7 +37,7 @@ impl Default for LayoutConfig {
 
 impl WindowManager {
     pub fn layout(&mut self) -> Result<()> {
-        let non_fullscreen_clients: std::collections::HashMap<Window, ClientState> = self
+        let non_fullscreen_clients: HashMap<Window, ClientState> = self
             .clients()
             .iter()
             .filter(|(_, state)| !state.is_fullscreen)
@@ -73,14 +75,17 @@ impl WindowManager {
         let nmaster = workspace.layout_config.nmaster;
 
         // let mut windows: Vec<Window> = self.clients().keys().copied().collect();
-        let mut windows: Vec<Window> = self
-            .clients()
-            .iter()
-            .filter(|(_, state)| !state.is_fullscreen)
-            .map(|(&w, _)| w)
+        let windows: Vec<Window> = workspace
+            .ordered_clients()
+            .into_iter()
+            .filter(|w| {
+                if let Some(state) = workspace.clients.get(w) {
+                    !state.is_fullscreen
+                } else {
+                    false
+                }
+            })
             .collect();
-
-        windows.sort();
 
         let n_windows = windows.len();
 
@@ -158,11 +163,16 @@ impl WindowManager {
         let height = screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
 
         // let windows: Vec<Window> = self.clients().keys().copied().collect();
-        let windows: Vec<Window> = self
-            .clients()
-            .iter()
-            .filter(|(_, state)| !state.is_fullscreen)
-            .map(|(&w, _)| w)
+        let windows: Vec<Window> = workspace
+            .ordered_clients()
+            .into_iter()
+            .filter(|w| {
+                if let Some(state) = workspace.clients.get(w) {
+                    !state.is_fullscreen
+                } else {
+                    false
+                }
+            })
             .collect();
 
         for window in windows {
@@ -281,44 +291,55 @@ impl WindowManager {
         self.layout()
     }
 
+    /// rotate first window to the end
     pub fn rotate_windows(&mut self) -> Result<()> {
-        if self.clients().len() < 2 {
+        let workspace = self.workspaces.current_mut();
+
+        let tiled_windows: Vec<Window> = workspace
+            .ordered_clients()
+            .into_iter()
+            .filter(|w| {
+                if let Some(state) = workspace.clients.get(w) {
+                    !state.is_fullscreen
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        if tiled_windows.len() < 2 {
             return Ok(());
         }
 
-        let mut windows: Vec<Window> = self.clients().keys().copied().collect();
-        windows.sort();
-
-        if let Some(first) = windows.first() {
-            let first = *first;
-
-            if let Some(state) = self.clients_mut().remove(&first) {
-                self.clients_mut().insert(first, state);
+        if let Some(first_window) = tiled_windows.first().copied() {
+            if let Some(pos) = workspace.stack.iter().position(|&w| w == first_window) {
+                let window = workspace.stack.remove(pos);
+                workspace.stack.push(window);
             }
 
-            if self.focused_client() == Some(first) && windows.len() > 1 {
-                self.set_focused_client(Some(windows[1]));
+            if workspace.focused_client == Some(first_window) && tiled_windows.len() > 1 {
+                workspace.focused_client = Some(tiled_windows[1]);
                 self.conn
-                    .set_input_focus(InputFocus::PARENT, windows[1], CURRENT_TIME)?;
+                    .set_input_focus(InputFocus::PARENT, tiled_windows[1], CURRENT_TIME)?;
             }
         }
 
         self.layout()
     }
 
+    /// promote focused window to master section
     pub fn promote_to_master(&mut self) -> Result<()> {
         if let Some(focused) = self.focused_client() {
-            if let Some(state) = self.clients_mut().remove(&focused) {
-                let mut new_clients = std::collections::HashMap::new();
-                new_clients.insert(focused, state);
+            let workspace = self.workspaces.current_mut();
 
-                for (win, st) in self.clients_mut().drain() {
-                    new_clients.insert(win, st);
+            if let Some(pos) = workspace.stack.iter().position(|&w| w == focused) {
+                if pos > 0 {
+                    let window = workspace.stack.remove(pos);
+                    workspace.stack.insert(0, window);
+
+                    println!("Promoted window {} to master", window);
+                    self.layout()?;
                 }
-
-                // FIXME: implement thi
-                // self.clients = new_clients;
-                self.layout()?;
             }
         }
         Ok(())

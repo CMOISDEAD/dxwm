@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use x11rb::protocol::xproto::*;
 use x11rb::CURRENT_TIME;
@@ -67,11 +69,19 @@ impl ClientState {
 }
 
 impl WindowManager {
-    pub fn clients(&self) -> &std::collections::HashMap<Window, ClientState> {
+    pub fn stack(&self) -> &Vec<Window> {
+        &self.workspaces.current().stack
+    }
+
+    pub fn stack_mut(&mut self) -> &mut Vec<Window> {
+        &mut self.workspaces.current_mut().stack
+    }
+
+    pub fn clients(&self) -> &HashMap<Window, ClientState> {
         &self.workspaces.current().clients
     }
 
-    pub fn clients_mut(&mut self) -> &mut std::collections::HashMap<Window, ClientState> {
+    pub fn clients_mut(&mut self) -> &mut HashMap<Window, ClientState> {
         &mut self.workspaces.current_mut().clients
     }
 
@@ -150,13 +160,41 @@ impl WindowManager {
         Ok(())
     }
 
+    pub fn unmanage_client(&mut self, window: Window) -> Result<()> {
+        println!("Unmanaging client: {}", window);
+
+        self.workspaces.current_mut().remove_client(window);
+
+        if self.focused_client() == Some(window) {
+            if !self.clients().is_empty() {
+                let next_window = *self.clients().keys().next().unwrap();
+                self.set_focused_client(Some(next_window));
+
+                self.conn
+                    .set_input_focus(InputFocus::PARENT, next_window, CURRENT_TIME)?;
+            } else {
+                self.set_focused_client(None);
+            }
+        }
+
+        self.layout()?;
+
+        if !self.clients().is_empty() {
+            self.update_window_borders()?;
+        }
+
+        self.restack_alerts()?;
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    /// focus next client in the workspace
     pub fn focus_next(&mut self) -> Result<()> {
         if self.clients().is_empty() {
             return Ok(());
         }
 
-        let mut windows: Vec<Window> = self.clients().keys().copied().collect();
-        windows.sort();
+        let windows: Vec<Window> = self.workspaces.current().ordered_clients();
 
         if windows.len() == 1 {
             return Ok(());
@@ -188,13 +226,13 @@ impl WindowManager {
         Ok(())
     }
 
+    /// focus prev client in the workspace
     pub fn focus_prev(&mut self) -> Result<()> {
         if self.clients().is_empty() {
             return Ok(());
         }
 
-        let mut windows: Vec<Window> = self.clients().keys().copied().collect();
-        windows.sort();
+        let windows: Vec<Window> = self.workspaces.current().ordered_clients();
 
         if windows.len() == 1 {
             return Ok(());
@@ -231,34 +269,84 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn unmanage_client(&mut self, window: Window) -> Result<()> {
-        println!("Unmanaging client: {}", window);
+    /// swap client position with the next client in the workspace
+    pub fn swap_next(&mut self) -> Result<()> {
+        if let Some(focused) = self.focused_client() {
+            let workspace = self.workspaces.current_mut();
 
-        self.workspaces.current_mut().remove_client(window);
+            let windows: Vec<Window> = workspace
+                .ordered_clients()
+                .into_iter()
+                .filter(|w| {
+                    if let Some(state) = workspace.clients.get(w) {
+                        !state.is_fullscreen
+                    } else {
+                        false
+                    }
+                })
+                .collect();
 
-        if self.focused_client() == Some(window) {
-            if !self.clients().is_empty() {
-                let next_window = *self.clients().keys().next().unwrap();
-                self.set_focused_client(Some(next_window));
+            if windows.len() < 2 {
+                return Ok(());
+            }
 
-                self.conn
-                    .set_input_focus(InputFocus::PARENT, next_window, CURRENT_TIME)?;
-            } else {
-                self.set_focused_client(None);
+            if let Some(current_idx) = windows.iter().position(|&w| w == focused) {
+                let next_idx = (current_idx + 1) % windows.len();
+                let client1 = windows[current_idx];
+                let client2 = windows[next_idx];
+
+                workspace.swap_clients(client1, client2);
+
+                println!("Swapped window {} ↔ {}", client1, client2);
+
+                self.layout()?;
             }
         }
-
-        self.layout()?;
-
-        if !self.clients().is_empty() {
-            self.update_window_borders()?;
-        }
-
-        self.restack_alerts()?;
-        self.conn.flush()?;
         Ok(())
     }
 
+    /// swap client position with the prev client in the workspace
+    pub fn swap_prev(&mut self) -> Result<()> {
+        if let Some(focused) = self.focused_client() {
+            let workspace = self.workspaces.current_mut();
+
+            let windows: Vec<Window> = workspace
+                .ordered_clients()
+                .into_iter()
+                .filter(|w| {
+                    if let Some(state) = workspace.clients.get(w) {
+                        !state.is_fullscreen
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+
+            if windows.len() < 2 {
+                return Ok(());
+            }
+
+            if let Some(current_idx) = windows.iter().position(|&w| w == focused) {
+                let prev_idx = if current_idx == 0 {
+                    windows.len() - 1
+                } else {
+                    current_idx - 1
+                };
+
+                let client1 = windows[current_idx];
+                let client2 = windows[prev_idx];
+
+                workspace.swap_clients(client1, client2);
+
+                println!("Swapped window {} ↔ {}", client1, client2);
+
+                self.layout()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// update windows borders
     pub fn update_window_borders(&mut self) -> Result<()> {
         for &window in self.clients().keys() {
             let is_focused = self.focused_client() == Some(window);
@@ -279,6 +367,7 @@ impl WindowManager {
         Ok(())
     }
 
+    /// close window, send a WM_DELE_WINDOW and if its not valid force destroy
     pub fn close_window(&mut self, window: Window) -> Result<()> {
         if self.window_supports_protocol(window, self.atoms.wm_delete_window)? {
             self.send_delete_window(window)?;
@@ -296,6 +385,7 @@ impl WindowManager {
         Ok(())
     }
 
+    /// check if the window support an especific protocol
     fn window_supports_protocol(&self, window: Window, protocol: Atom) -> Result<bool> {
         let protocols = match self
             .conn
@@ -453,6 +543,7 @@ impl WindowManager {
         state1: Atom,
         state2: Atom,
     ) -> Result<()> {
+        // TODO: implement float atoms
         if state1 == self.atoms.net_wm_state_fullscreen
             || state2 == self.atoms.net_wm_state_fullscreen
         {

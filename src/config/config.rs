@@ -18,7 +18,7 @@ pub const BROWSER_APP: &str = "qutebrowser";
 pub fn launch_dmenu() {
     Command::new("dmenu_run")
         .arg("-fn")
-        .arg(format!("{}:size=12", FONT_NAME))
+        .arg(format!("{}:size=9", FONT_NAME))
         .arg("-nb")
         .arg(format!("#{:06x}", BACKGROUND))
         .arg("-nf")

@@ -131,6 +131,26 @@ impl WindowManager {
                 .bind_normal(key, ModMask::M4, KeyAction::FocusPrev);
         }
 
+        if let Some(key) = grabber.keysym_to_keycode(XK_J) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4 | ModMask::SHIFT,
+                KeyAction::Custom(|wm| {
+                    wm.swap_next().ok();
+                }),
+            );
+        }
+
+        if let Some(key) = grabber.keysym_to_keycode(XK_K) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4 | ModMask::SHIFT,
+                KeyAction::Custom(|wm| {
+                    wm.swap_prev().ok();
+                }),
+            );
+        }
+
         if let Some(key) = grabber.keysym_to_keycode(XK_H) {
             self.keybindings.bind_normal(
                 key,

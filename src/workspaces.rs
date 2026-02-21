@@ -15,6 +15,7 @@ pub struct Workspace {
     pub id: u8,
     pub name: String,
     pub clients: HashMap<Window, ClientState>,
+    pub stack: Vec<Window>,
     pub focused_client: Option<Window>,
     pub layout_config: LayoutConfig,
 }
@@ -25,6 +26,7 @@ impl Workspace {
             id,
             name,
             clients: HashMap::new(),
+            stack: Vec::new(),
             focused_client: None,
             layout_config: LayoutConfig::default(),
         }
@@ -33,6 +35,7 @@ impl Workspace {
     /// Agrega un cliente al workspace
     pub fn add_client(&mut self, window: Window, state: ClientState) {
         self.clients.insert(window, state);
+        self.stack.push(window);
         if self.focused_client.is_none() {
             self.focused_client = Some(window);
         }
@@ -44,6 +47,7 @@ impl Workspace {
         if self.focused_client == Some(window) {
             self.focused_client = self.clients.keys().find(|&&w| w != window).copied();
         }
+        self.stack.retain(|&w| w != window);
         self.clients.remove(&window)
     }
 
@@ -55,6 +59,23 @@ impl Workspace {
     /// Obtiene el número de ventanas
     pub fn len(&self) -> usize {
         self.clients.len()
+    }
+
+    pub fn ordered_clients(&self) -> Vec<Window> {
+        self.stack
+            .iter()
+            .filter(|w| self.clients.contains_key(w))
+            .copied()
+            .collect()
+    }
+
+    /// swap two clients in order
+    pub fn swap_clients(&mut self, client1: Window, client2: Window) {
+        if let Some(pos1) = self.stack.iter().position(|&w| w == client1) {
+            if let Some(pos2) = self.stack.iter().position(|&w| w == client2) {
+                self.stack.swap(pos1, pos2);
+            }
+        }
     }
 }
 

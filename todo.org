@@ -4,5 +4,5 @@
 ** DONE implement auto start script
 ** DONE create workspaces
 ** DONE implement Super+Tab for cycle between last workspace
-** TODO implement theme switcher
+** TODO implement dark/light switcher?
 ** DONE improve alerts and sub keybindings behavior
