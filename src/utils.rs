@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env::home_dir;
 use std::str;
 
@@ -195,4 +196,20 @@ pub fn get_volume() -> String {
 
 pub fn is_muted() -> bool {
     get_command_output("pamixer --get-mute").trim() == "true"
+}
+
+pub fn dedup_preserve_order<T>(vec: Vec<T>) -> Vec<T>
+where
+    T: std::hash::Hash + Eq + Clone,
+{
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+
+    for item in vec {
+        if seen.insert(item.clone()) {
+            result.push(item);
+        }
+    }
+
+    result
 }

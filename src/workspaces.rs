@@ -8,6 +8,7 @@ use x11rb::CURRENT_TIME;
 
 use crate::clients::ClientState;
 use crate::layout::LayoutConfig;
+use crate::utils::dedup_preserve_order;
 use crate::wm::WindowManager;
 
 #[derive(Debug, Clone)]
@@ -48,7 +49,12 @@ impl Workspace {
             self.focused_client = self.clients.keys().find(|&&w| w != window).copied();
         }
         self.stack.retain(|&w| w != window);
-        self.clients.remove(&window)
+
+        let result = self.clients.remove(&window);
+
+        self.sync_clients();
+
+        result
     }
 
     /// Verifica si el workspace está vacío
@@ -67,6 +73,12 @@ impl Workspace {
             .filter(|w| self.clients.contains_key(w))
             .copied()
             .collect()
+    }
+
+    /// sync clients in the stack and clients
+    pub fn sync_clients(&mut self) {
+        self.stack = dedup_preserve_order(self.stack.clone());
+        self.stack.retain(|w| self.clients.contains_key(w));
     }
 
     /// swap two clients in order

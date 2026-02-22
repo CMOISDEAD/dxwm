@@ -62,6 +62,8 @@ impl WindowManager {
     pub fn apply_master_stack_layout(&mut self) -> Result<()> {
         let screen = self.conn.setup().roots.get(0).unwrap();
 
+        self.workspaces.current_mut().sync_clients();
+
         let workspace = self.workspaces.current();
 
         let screen_x = workspace.layout_config.screen_padding;
@@ -155,6 +157,8 @@ impl WindowManager {
 
     pub fn apply_monocle_layout(&mut self) -> Result<()> {
         let screen = self.conn.setup().roots.get(0).unwrap();
+
+        self.workspaces.current_mut().sync_clients();
 
         let workspace = self.workspaces.current();
         let x = workspace.layout_config.screen_padding;
