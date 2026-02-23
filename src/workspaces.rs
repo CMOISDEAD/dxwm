@@ -108,7 +108,7 @@ impl WorkspaceManager {
         Self {
             workspaces,
             current_workspace: 1,
-            last_workspace: 1,
+            last_workspace: 2,
         }
     }
 

@@ -7,7 +7,7 @@ pub const BACKGROUND: u32 = 0x222222;
 pub const FOREGROUND: u32 = 0xD7D5D1;
 pub const BORDER_FOCUSED: u32 = 0xBBBBBB;
 pub const BORDER_UNFOCUSED: u32 = 0x444444;
-pub const FONT_NAME: &str = "Iosevka Nerd Font";
+pub const FONT_NAME: &str = "Terminess Nerd Font";
 pub const SELECTED: u32 = 0x444444;
 
 pub const TERMINAL_APP: &str = "alacritty";
