@@ -44,6 +44,7 @@ impl KeyBindingManager {
         }
     }
 
+    /// Create a "binding" in normal mode
     pub fn bind_normal(&mut self, keycode: Keycode, modifiers: ModMask, action: KeyAction) {
         self.normal_bindings.push(KeyBinding {
             keycode,
@@ -52,6 +53,7 @@ impl KeyBindingManager {
         });
     }
 
+    /// Create "sub-binding"
     pub fn add_submap(&mut self, name: String, oneshot: bool) {
         self.submaps.insert(
             name.clone(),
@@ -63,6 +65,7 @@ impl KeyBindingManager {
         );
     }
 
+    /// Add a "binding" to a submap
     pub fn bind_in_mode(
         &mut self,
         mode: &str,
@@ -79,6 +82,7 @@ impl KeyBindingManager {
         }
     }
 
+    /// Return the current actived bindings based on current mode.
     pub fn active_bindings(&self) -> &[KeyBinding] {
         if let Some(mode_name) = &self.current_mode {
             if let Some(submap) = self.submaps.get(mode_name) {
@@ -88,6 +92,7 @@ impl KeyBindingManager {
         &self.normal_bindings
     }
 
+    /// Find an action
     pub fn find_action(&self, keycode: Keycode, modifiers: ModMask) -> Option<KeyAction> {
         let bindings = self.active_bindings();
 
@@ -110,6 +115,7 @@ impl KeyBindingManager {
         None
     }
 
+    /// Change the current mode
     pub fn enter_mode(&mut self, mode: String) {
         if self.submaps.contains_key(&mode) {
             println!("→ Entering mode: {}", mode);
@@ -117,6 +123,7 @@ impl KeyBindingManager {
         }
     }
 
+    /// Exit the current mode and set it to "normal"
     pub fn exit_mode(&mut self) {
         if let Some(mode) = &self.current_mode {
             println!("← Exiting mode: {}", mode);
@@ -124,6 +131,7 @@ impl KeyBindingManager {
         }
     }
 
+    /// Check if the current submap should autoexit after execute an action
     pub fn should_auto_exit(&self) -> bool {
         if let Some(mode_name) = &self.current_mode {
             if let Some(submap) = self.submaps.get(mode_name) {

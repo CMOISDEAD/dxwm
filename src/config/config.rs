@@ -28,19 +28,3 @@ pub fn launch_dmenu() {
         .spawn()
         .ok();
 }
-
-/*
-((bg         '("#222222" nil       nil ))
- (bg-alt     (doom-lighten bg 0.15))
- (base0      '("#838083" nil nil ))
- (base1      '("#0e0c0a" nil nil ))
- (base2      '("#bbbbbb" nil nil ))
- (base3      '("#444444" nil nil ))
- (base4      '("#202020" nil nil ))
- (base5      '("#545053" nil nil ))
- (base6      '("#050505" nil nil ))
- (base7      '("#ffdddd" nil nil ))
- (base8      '("#050505" nil nil ))
- (fg         '("#d7d5d1" nil nil ))
- (fg-alt     '("#e7e5e3" nil nil )))
-*/

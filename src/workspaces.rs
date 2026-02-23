@@ -16,39 +16,40 @@ pub struct Workspace {
     pub id: u8,
     pub name: String,
     pub clients: HashMap<Window, ClientState>,
-    pub stack: Vec<Window>,
+    pub clients_order: Vec<Window>,
     pub focused_client: Option<Window>,
     pub layout_config: LayoutConfig,
 }
 
 impl Workspace {
+    /// Create a new Workspace instance
     pub fn new(id: u8, name: String) -> Self {
         Self {
             id,
             name,
             clients: HashMap::new(),
-            stack: Vec::new(),
+            clients_order: Vec::new(),
             focused_client: None,
             layout_config: LayoutConfig::default(),
         }
     }
 
-    /// Agrega un cliente al workspace
+    /// Add a client to the current workspace
     pub fn add_client(&mut self, window: Window, state: ClientState) {
         self.clients.insert(window, state);
-        self.stack.push(window);
+        self.clients_order.push(window);
         if self.focused_client.is_none() {
             self.focused_client = Some(window);
         }
     }
 
-    /// Remueve un cliente del workspace
+    /// Remove a client in the current workspace
     pub fn remove_client(&mut self, window: Window) -> Option<ClientState> {
-        // Si era la focused, cambiar foco
+        // if was the focused client; change the focus.
         if self.focused_client == Some(window) {
             self.focused_client = self.clients.keys().find(|&&w| w != window).copied();
         }
-        self.stack.retain(|&w| w != window);
+        self.clients_order.retain(|&w| w != window);
 
         let result = self.clients.remove(&window);
 
@@ -57,35 +58,36 @@ impl Workspace {
         result
     }
 
-    /// Verifica si el workspace está vacío
+    /// Verify if the current workspace is empty
     pub fn is_empty(&self) -> bool {
         self.clients.is_empty()
     }
 
-    /// Obtiene el número de ventanas
+    /// Get the length of the clients
     pub fn len(&self) -> usize {
         self.clients.len()
     }
 
-    pub fn ordered_clients(&self) -> Vec<Window> {
-        self.stack
+    /// return the clients_order
+    pub fn clients_order(&self) -> Vec<Window> {
+        self.clients_order
             .iter()
             .filter(|w| self.clients.contains_key(w))
             .copied()
             .collect()
     }
 
-    /// sync clients in the stack and clients
+    /// sync clients in the "client_order" and "clients"
     pub fn sync_clients(&mut self) {
-        self.stack = dedup_preserve_order(self.stack.clone());
-        self.stack.retain(|w| self.clients.contains_key(w));
+        self.clients_order = dedup_preserve_order(self.clients_order.clone());
+        self.clients_order.retain(|w| self.clients.contains_key(w));
     }
 
     /// swap two clients in order
     pub fn swap_clients(&mut self, client1: Window, client2: Window) {
-        if let Some(pos1) = self.stack.iter().position(|&w| w == client1) {
-            if let Some(pos2) = self.stack.iter().position(|&w| w == client2) {
-                self.stack.swap(pos1, pos2);
+        if let Some(pos1) = self.clients_order.iter().position(|&w| w == client1) {
+            if let Some(pos2) = self.clients_order.iter().position(|&w| w == client2) {
+                self.clients_order.swap(pos1, pos2);
             }
         }
     }
@@ -98,6 +100,7 @@ pub struct WorkspaceManager {
 }
 
 impl WorkspaceManager {
+    /// Create a new WorkspaceManager instance
     pub fn new(num_workspaces: u8) -> Self {
         let mut workspaces = Vec::new();
 
@@ -112,17 +115,17 @@ impl WorkspaceManager {
         }
     }
 
-    /// Obtiene el workspace actual
+    /// Get the current workspace
     pub fn current(&self) -> &Workspace {
         &self.workspaces[(self.current_workspace - 1) as usize]
     }
 
-    /// Obtiene el workspace actual (mutable)
+    /// Get the current workspace (mutable)
     pub fn current_mut(&mut self) -> &mut Workspace {
         &mut self.workspaces[(self.current_workspace - 1) as usize]
     }
 
-    /// Obtiene un workspace específico
+    /// Get an especific workspace
     pub fn get(&self, id: u8) -> Option<&Workspace> {
         if id < 1 || id > self.workspaces.len() as u8 {
             return None;
@@ -130,7 +133,7 @@ impl WorkspaceManager {
         Some(&self.workspaces[(id - 1) as usize])
     }
 
-    /// Obtiene un workspace específico (mutable)
+    /// Get an especific workspace (mutable)
     pub fn get_mut(&mut self, id: u8) -> Option<&mut Workspace> {
         if id < 1 || id > self.workspaces.len() as u8 {
             return None;
@@ -138,7 +141,7 @@ impl WorkspaceManager {
         Some(&mut self.workspaces[(id - 1) as usize])
     }
 
-    /// Cambia al workspace especificado
+    /// Change to an specific workspace
     pub fn switch_to(&mut self, id: u8) -> bool {
         if id < 1 || id > self.workspaces.len() as u8 {
             return false;
@@ -151,7 +154,8 @@ impl WorkspaceManager {
         }
     }
 
-    pub fn move_window_to_workspace(&mut self, window: Window, target_workspace: u8) -> bool {
+    /// Move the current client to an specified workspace
+    pub fn move_client_to_workspace(&mut self, window: Window, target_workspace: u8) -> bool {
         if target_workspace < 1 || target_workspace > self.workspaces.len() as u8 {
             return false;
         }
@@ -165,13 +169,14 @@ impl WorkspaceManager {
         false
     }
 
-    /// Obtiene el número total de workspaces
+    /// Get the total number of workspaces
     pub fn count(&self) -> usize {
         self.workspaces.len()
     }
 }
 
 impl WindowManager {
+    /// Switch to an specific workspace
     pub fn switch_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
         if workspace_id < 1 || workspace_id > self.workspaces.count() as u8 {
             return Ok(false);
@@ -205,6 +210,7 @@ impl WindowManager {
         Ok(true)
     }
 
+    /// Move focused client to an specific workspace
     pub fn move_focused_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
         if self.workspaces.current_workspace == workspace_id {
             return Ok(false);
@@ -224,7 +230,7 @@ impl WindowManager {
             self.conn.unmap_window(window)?;
 
             self.workspaces
-                .move_window_to_workspace(window, workspace_id);
+                .move_client_to_workspace(window, workspace_id);
 
             self.layout()?;
 
@@ -234,6 +240,7 @@ impl WindowManager {
         Ok(true)
     }
 
+    /// Change to the last visited workspace
     pub fn cycle_last_workspace(&mut self) -> Result<()> {
         let _ = self.switch_to_workspace(self.workspaces.last_workspace);
 

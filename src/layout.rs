@@ -76,9 +76,8 @@ impl WindowManager {
         let gap = workspace.layout_config.gap_size;
         let nmaster = workspace.layout_config.nmaster;
 
-        // let mut windows: Vec<Window> = self.clients().keys().copied().collect();
-        let windows: Vec<Window> = workspace
-            .ordered_clients()
+        let clients: Vec<Window> = workspace
+            .clients_order()
             .into_iter()
             .filter(|w| {
                 if let Some(state) = workspace.clients.get(w) {
@@ -89,20 +88,20 @@ impl WindowManager {
             })
             .collect();
 
-        let n_windows = windows.len();
+        let n_clients = clients.len();
 
-        if n_windows == 0 {
+        if n_clients == 0 {
             return Ok(());
         }
 
-        if n_windows == 1 {
-            let window = windows[0];
-            self.configure_client(window, screen_x, screen_y, screen_width, screen_height)?;
+        if n_clients == 1 {
+            let client = clients[0];
+            self.configure_client(client, screen_x, screen_y, screen_width, screen_height)?;
             return Ok(());
         }
 
-        let n_master = nmaster.min(n_windows);
-        let n_stack = n_windows - n_master;
+        let n_master = nmaster.min(n_clients);
+        let n_stack = n_clients - n_master;
 
         let master_width = if n_stack > 0 {
             ((screen_width as f32 * workspace.layout_config.master_ratio) as i16) - gap
@@ -118,12 +117,12 @@ impl WindowManager {
 
         // Master
         if n_master == 1 {
-            let window = windows[0];
-            self.configure_client(window, screen_x, screen_y, master_width, screen_height)?;
+            let client = clients[0];
+            self.configure_client(client, screen_x, screen_y, master_width, screen_height)?;
         } else {
             let master_height = (screen_height - (gap * (n_master as i16 - 1))) / n_master as i16;
 
-            for (i, &window) in windows.iter().take(n_master).enumerate() {
+            for (i, &client) in clients.iter().take(n_master).enumerate() {
                 let y = screen_y + (i as i16 * (master_height + gap));
                 let h = if i == n_master - 1 {
                     screen_height - (i as i16 * (master_height + gap))
@@ -131,7 +130,7 @@ impl WindowManager {
                     master_height
                 };
 
-                self.configure_client(window, screen_x, y, master_width, h)?;
+                self.configure_client(client, screen_x, y, master_width, h)?;
             }
         }
 
@@ -140,7 +139,7 @@ impl WindowManager {
             let stack_x = screen_x + master_width + gap;
             let stack_height = (screen_height - (gap * (n_stack as i16 - 1))) / n_stack as i16;
 
-            for (i, &window) in windows.iter().skip(n_master).enumerate() {
+            for (i, &client) in clients.iter().skip(n_master).enumerate() {
                 let y = screen_y + (i as i16 * (stack_height + gap));
                 let h = if i == n_stack - 1 {
                     screen_height - (i as i16 * (stack_height + gap))
@@ -148,7 +147,7 @@ impl WindowManager {
                     stack_height
                 };
 
-                self.configure_client(window, stack_x, y, stack_width, h)?;
+                self.configure_client(client, stack_x, y, stack_width, h)?;
             }
         }
 
@@ -166,9 +165,8 @@ impl WindowManager {
         let width = screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
         let height = screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
 
-        // let windows: Vec<Window> = self.clients().keys().copied().collect();
-        let windows: Vec<Window> = workspace
-            .ordered_clients()
+        let clients: Vec<Window> = workspace
+            .clients_order()
             .into_iter()
             .filter(|w| {
                 if let Some(state) = workspace.clients.get(w) {
@@ -179,8 +177,8 @@ impl WindowManager {
             })
             .collect();
 
-        for window in windows {
-            self.configure_client(window, x, y, width, height)?;
+        for client in clients {
+            self.configure_client(client, x, y, width, height)?;
         }
 
         if let Some(focused) = self.focused_client() {
@@ -223,7 +221,6 @@ impl WindowManager {
         Ok(())
     }
 
-    // TODO: refactor this method
     pub fn next_layout(&mut self) -> Result<()> {
         let workspace = self.workspaces.current_mut();
 
@@ -299,8 +296,8 @@ impl WindowManager {
     pub fn rotate_windows(&mut self) -> Result<()> {
         let workspace = self.workspaces.current_mut();
 
-        let tiled_windows: Vec<Window> = workspace
-            .ordered_clients()
+        let tiled_clients: Vec<Window> = workspace
+            .clients_order()
             .into_iter()
             .filter(|w| {
                 if let Some(state) = workspace.clients.get(w) {
@@ -311,20 +308,24 @@ impl WindowManager {
             })
             .collect();
 
-        if tiled_windows.len() < 2 {
+        if tiled_clients.len() < 2 {
             return Ok(());
         }
 
-        if let Some(first_window) = tiled_windows.first().copied() {
-            if let Some(pos) = workspace.stack.iter().position(|&w| w == first_window) {
-                let window = workspace.stack.remove(pos);
-                workspace.stack.push(window);
+        if let Some(first_client) = tiled_clients.first().copied() {
+            if let Some(pos) = workspace
+                .clients_order
+                .iter()
+                .position(|&w| w == first_client)
+            {
+                let client = workspace.clients_order.remove(pos);
+                workspace.clients_order.push(client);
             }
 
-            if workspace.focused_client == Some(first_window) && tiled_windows.len() > 1 {
-                workspace.focused_client = Some(tiled_windows[1]);
+            if workspace.focused_client == Some(first_client) && tiled_clients.len() > 1 {
+                workspace.focused_client = Some(tiled_clients[1]);
                 self.conn
-                    .set_input_focus(InputFocus::PARENT, tiled_windows[1], CURRENT_TIME)?;
+                    .set_input_focus(InputFocus::PARENT, tiled_clients[1], CURRENT_TIME)?;
             }
         }
 
@@ -336,12 +337,12 @@ impl WindowManager {
         if let Some(focused) = self.focused_client() {
             let workspace = self.workspaces.current_mut();
 
-            if let Some(pos) = workspace.stack.iter().position(|&w| w == focused) {
+            if let Some(pos) = workspace.clients_order.iter().position(|&w| w == focused) {
                 if pos > 0 {
-                    let window = workspace.stack.remove(pos);
-                    workspace.stack.insert(0, window);
+                    let client = workspace.clients_order.remove(pos);
+                    workspace.clients_order.insert(0, client);
 
-                    println!("Promoted window {} to master", window);
+                    println!("Promoted client {} to master", client);
                     self.layout()?;
                 }
             }

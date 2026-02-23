@@ -69,30 +69,37 @@ impl ClientState {
 }
 
 impl WindowManager {
-    pub fn stack(&self) -> &Vec<Window> {
-        &self.workspaces.current().stack
+    /// Returns the clients order
+    pub fn clients_order(&self) -> &Vec<Window> {
+        &self.workspaces.current().clients_order
     }
 
-    pub fn stack_mut(&mut self) -> &mut Vec<Window> {
-        &mut self.workspaces.current_mut().stack
+    /// Returns the clients order (mutable)
+    pub fn clients_order_mut(&mut self) -> &mut Vec<Window> {
+        &mut self.workspaces.current_mut().clients_order
     }
 
+    /// Return all the clients
     pub fn clients(&self) -> &HashMap<Window, ClientState> {
         &self.workspaces.current().clients
     }
 
+    /// Return all the clients (mutable)
     pub fn clients_mut(&mut self) -> &mut HashMap<Window, ClientState> {
         &mut self.workspaces.current_mut().clients
     }
 
+    /// Return the focused client Xid
     pub fn focused_client(&self) -> Option<Window> {
         self.workspaces.current().focused_client
     }
 
+    /// Set a specified client with focus state
     pub fn set_focused_client(&mut self, window: Option<Window>) {
         self.workspaces.current_mut().focused_client = window;
     }
 
+    /// Manage all the clients
     pub fn manage_client(&mut self, e: MapRequestEvent) -> Result<()> {
         let client = e.window;
 
@@ -137,7 +144,7 @@ impl WindowManager {
 
         if should_fullscreen {
             self.conn.map_window(client)?;
-            self.fullscreen_window(client)?;
+            self.fullscreen_client(client)?;
             return Ok(());
         }
 
@@ -154,12 +161,13 @@ impl WindowManager {
 
         self.layout()?;
 
-        self.update_window_borders()?;
+        self.update_client_borders()?;
 
         self.conn.flush()?;
         Ok(())
     }
 
+    /// Unmanage all the clients
     pub fn unmanage_client(&mut self, window: Window) -> Result<()> {
         println!("Unmanaging client: {}", window);
 
@@ -180,7 +188,7 @@ impl WindowManager {
         self.layout()?;
 
         if !self.clients().is_empty() {
-            self.update_window_borders()?;
+            self.update_client_borders()?;
         }
 
         self.restack_alerts()?;
@@ -194,32 +202,32 @@ impl WindowManager {
             return Ok(());
         }
 
-        let windows: Vec<Window> = self.workspaces.current().ordered_clients();
+        let clients: Vec<Window> = self.workspaces.current().clients_order();
 
-        if windows.len() == 1 {
+        if clients.len() == 1 {
             return Ok(());
         }
 
         let current_index = if let Some(current) = self.focused_client() {
-            windows.iter().position(|&w| w == current).unwrap_or(0)
+            clients.iter().position(|&w| w == current).unwrap_or(0)
         } else {
             0
         };
 
-        let next_index = (current_index + 1) % windows.len();
-        let next_window = windows[next_index];
+        let next_index = (current_index + 1) % clients.len();
+        let next_client = clients[next_index];
 
-        self.set_focused_client(Some(next_window));
+        self.set_focused_client(Some(next_client));
 
         self.conn
-            .set_input_focus(InputFocus::PARENT, next_window, CURRENT_TIME)?;
+            .set_input_focus(InputFocus::PARENT, next_client, CURRENT_TIME)?;
 
         self.conn.configure_window(
-            next_window,
+            next_client,
             &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
         )?;
 
-        self.update_window_borders()?;
+        self.update_client_borders()?;
 
         self.restack_alerts()?;
         self.conn.flush()?;
@@ -232,7 +240,7 @@ impl WindowManager {
             return Ok(());
         }
 
-        let windows: Vec<Window> = self.workspaces.current().ordered_clients();
+        let windows: Vec<Window> = self.workspaces.current().clients_order();
 
         if windows.len() == 1 {
             return Ok(());
@@ -262,20 +270,20 @@ impl WindowManager {
             &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
         )?;
 
-        self.update_window_borders()?;
+        self.update_client_borders()?;
 
         self.restack_alerts()?;
         self.conn.flush()?;
         Ok(())
     }
 
-    /// swap client position with the next client in the workspace
+    /// swap client position with the next client in the current workspace
     pub fn swap_next(&mut self) -> Result<()> {
         if let Some(focused) = self.focused_client() {
             let workspace = self.workspaces.current_mut();
 
-            let windows: Vec<Window> = workspace
-                .ordered_clients()
+            let clients: Vec<Window> = workspace
+                .clients_order()
                 .into_iter()
                 .filter(|w| {
                     if let Some(state) = workspace.clients.get(w) {
@@ -286,18 +294,18 @@ impl WindowManager {
                 })
                 .collect();
 
-            if windows.len() < 2 {
+            if clients.len() < 2 {
                 return Ok(());
             }
 
-            if let Some(current_idx) = windows.iter().position(|&w| w == focused) {
-                let next_idx = (current_idx + 1) % windows.len();
-                let client1 = windows[current_idx];
-                let client2 = windows[next_idx];
+            if let Some(current_idx) = clients.iter().position(|&w| w == focused) {
+                let next_idx = (current_idx + 1) % clients.len();
+                let client1 = clients[current_idx];
+                let client2 = clients[next_idx];
 
                 workspace.swap_clients(client1, client2);
 
-                println!("Swapped window {} ↔ {}", client1, client2);
+                println!("Swapped client {} ↔ {}", client1, client2);
 
                 self.layout()?;
             }
@@ -305,13 +313,13 @@ impl WindowManager {
         Ok(())
     }
 
-    /// swap client position with the prev client in the workspace
+    /// swap client position with the prev client in the current workspace
     pub fn swap_prev(&mut self) -> Result<()> {
         if let Some(focused) = self.focused_client() {
             let workspace = self.workspaces.current_mut();
 
-            let windows: Vec<Window> = workspace
-                .ordered_clients()
+            let clients: Vec<Window> = workspace
+                .clients_order()
                 .into_iter()
                 .filter(|w| {
                     if let Some(state) = workspace.clients.get(w) {
@@ -322,23 +330,23 @@ impl WindowManager {
                 })
                 .collect();
 
-            if windows.len() < 2 {
+            if clients.len() < 2 {
                 return Ok(());
             }
 
-            if let Some(current_idx) = windows.iter().position(|&w| w == focused) {
+            if let Some(current_idx) = clients.iter().position(|&w| w == focused) {
                 let prev_idx = if current_idx == 0 {
-                    windows.len() - 1
+                    clients.len() - 1
                 } else {
                     current_idx - 1
                 };
 
-                let client1 = windows[current_idx];
-                let client2 = windows[prev_idx];
+                let client1 = clients[current_idx];
+                let client2 = clients[prev_idx];
 
                 workspace.swap_clients(client1, client2);
 
-                println!("Swapped window {} ↔ {}", client1, client2);
+                println!("Swapped client {} ↔ {}", client1, client2);
 
                 self.layout()?;
             }
@@ -346,10 +354,10 @@ impl WindowManager {
         Ok(())
     }
 
-    /// update windows borders
-    pub fn update_window_borders(&mut self) -> Result<()> {
-        for &window in self.clients().keys() {
-            let is_focused = self.focused_client() == Some(window);
+    /// update client borders
+    pub fn update_client_borders(&mut self) -> Result<()> {
+        for &client in self.clients().keys() {
+            let is_focused = self.focused_client() == Some(client);
             let color = if is_focused {
                 self.border_focused_color
             } else {
@@ -357,7 +365,7 @@ impl WindowManager {
             };
 
             self.conn.change_window_attributes(
-                window,
+                client,
                 &ChangeWindowAttributesAux::new().border_pixel(color),
             )?;
         }
@@ -367,14 +375,14 @@ impl WindowManager {
         Ok(())
     }
 
-    /// close window, send a WM_DELE_WINDOW and if its not valid force destroy
-    pub fn close_window(&mut self, window: Window) -> Result<()> {
-        if self.window_supports_protocol(window, self.atoms.wm_delete_window)? {
+    /// close client, send a WM_DELE_WINDOW and if its not valid force destroy
+    pub fn close_client(&mut self, window: Window) -> Result<()> {
+        if self.client_supports_protocol(window, self.atoms.wm_delete_window)? {
             self.send_delete_window(window)?;
             println!("Sent WM_DELETE_WINDOW to window {}", window);
         } else {
             println!(
-                "Window {} doesn't support WM_DELETE_WINDOW, forcing destroy",
+                "client with id {} doesn't support WM_DELETE_WINDOW, forcing destroy",
                 window
             );
             self.conn.destroy_window(window)?;
@@ -385,8 +393,8 @@ impl WindowManager {
         Ok(())
     }
 
-    /// check if the window support an especific protocol
-    fn window_supports_protocol(&self, window: Window, protocol: Atom) -> Result<bool> {
+    /// check if the client support an especific protocol
+    fn client_supports_protocol(&self, window: Window, protocol: Atom) -> Result<bool> {
         let protocols = match self
             .conn
             .get_property(
@@ -415,6 +423,7 @@ impl WindowManager {
         Ok(atoms.contains(&protocol))
     }
 
+    /// Send a "delete_window" event to x11 server
     fn send_delete_window(&self, window: Window) -> Result<()> {
         let event = ClientMessageEvent {
             response_type: CLIENT_MESSAGE_EVENT,
@@ -437,27 +446,30 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn close_focused_window(&mut self) -> Result<()> {
-        if let Some(window) = self.focused_client() {
-            self.close_window(window)?;
+    /// Close the focused client
+    pub fn close_focused_client(&mut self) -> Result<()> {
+        if let Some(client) = self.focused_client() {
+            self.close_client(client)?;
         }
         Ok(())
     }
 
+    /// Toggle the **fullscreen state** on the focused window
     pub fn toggle_fullscreen(&mut self, window: Window) -> Result<()> {
         if let Some(state) = self.clients_mut().get_mut(&window) {
             if state.is_fullscreen {
-                self.unfullscreen_window(window)?;
+                self.unfullscreen_client(window)?;
             } else {
-                self.fullscreen_window(window)?;
+                self.fullscreen_client(window)?;
             }
         }
 
         Ok(())
     }
 
-    pub fn fullscreen_window(&mut self, window: Window) -> Result<()> {
-        println!("Setting window {} to fullscreen", window);
+    /// Set fullscreen to the specified client
+    pub fn fullscreen_client(&mut self, window: Window) -> Result<()> {
+        println!("Setting client {} to fullscreen", window);
 
         let geometry = {
             let screen = self.conn.setup().roots.get(0).unwrap();
@@ -502,8 +514,9 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn unfullscreen_window(&mut self, window: Window) -> Result<()> {
-        println!("Removing fullscren from window {}", window);
+    /// Unset fullscreen to the specified client
+    pub fn unfullscreen_client(&mut self, window: Window) -> Result<()> {
+        println!("Removing fullscren from client {}", window);
 
         if let Some(state) = self.clients_mut().get_mut(&window) {
             state.is_fullscreen = false;
@@ -548,8 +561,8 @@ impl WindowManager {
             || state2 == self.atoms.net_wm_state_fullscreen
         {
             match action {
-                0 => self.unfullscreen_window(window)?,
-                1 => self.fullscreen_window(window)?,
+                0 => self.unfullscreen_client(window)?,
+                1 => self.fullscreen_client(window)?,
                 2 => self.toggle_fullscreen(window)?,
                 _ => {}
             }

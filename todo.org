@@ -5,3 +5,4 @@
 ** DONE create workspaces
 ** DONE implement Super+Tab for cycle between last workspace
 ** DONE improve alerts and sub keybindings behavior
+** TODO implement float windows support (draggin, resize, etc...)

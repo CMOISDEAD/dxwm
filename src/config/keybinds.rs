@@ -540,7 +540,7 @@ impl WindowManager {
                 self.update_grabs()?;
             }
             KeyAction::CloseWindow => {
-                if let Err(err) = self.close_focused_window() {
+                if let Err(err) = self.close_focused_client() {
                     eprintln!("Error closing window: {}", err);
                 }
             }

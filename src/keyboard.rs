@@ -38,6 +38,7 @@ impl KeySymConverter {
         Ok(Self { keysym_map })
     }
 
+    /// Convert a keysym to a keycode
     pub fn keysym_to_keycode(&self, keysym: u32) -> Option<Keycode> {
         self.keysym_map
             .get(&keysym)
@@ -62,6 +63,7 @@ impl<'a, C: Connection> KeyboardGrabber<'a, C> {
         })
     }
 
+    /// Grab a specified key
     pub fn grab_key(&self, keycode: Keycode, modifiers: ModMask) -> Result<()> {
         self.conn
             .grab_key(
@@ -75,7 +77,7 @@ impl<'a, C: Connection> KeyboardGrabber<'a, C> {
             .check()
             .context("Failed to grab key")?;
 
-        // También grab con NumLock activado
+        // Grab with Numlock
         if !modifiers.contains(ModMask::M2) {
             self.conn
                 .grab_key(
@@ -93,14 +95,14 @@ impl<'a, C: Connection> KeyboardGrabber<'a, C> {
         Ok(())
     }
 
-    // Graba todas las teclas posibles (para detectar teclas no mapeadas)
+    // Grab all possible keys
     pub fn grab_all_keys(&self, setup: &Setup) -> Result<()> {
         let min_keycode = setup.min_keycode;
         let max_keycode = setup.max_keycode;
 
-        // Iterar sobre todos los keycodes válidos
+        // Iterate over all valid keycodes
         for keycode in min_keycode..=max_keycode {
-            // Intentar grab sin modificadores
+            // Try a grab without modifiers
             self.conn
                 .grab_key(
                     false,
@@ -110,13 +112,13 @@ impl<'a, C: Connection> KeyboardGrabber<'a, C> {
                     GrabMode::ASYNC,
                     GrabMode::ASYNC,
                 )
-                .ok(); // ⭐ Ignorar errores (algunas teclas pueden fallar)
+                .ok(); // ignore errors....
         }
 
         Ok(())
     }
 
-    /// Libera todos los grabs
+    /// Free all grabbed keys
     pub fn ungrab_all_keys(&self) -> Result<()> {
         self.conn
             .ungrab_key(0, self.root, ModMask::ANY)?
@@ -129,7 +131,7 @@ impl<'a, C: Connection> KeyboardGrabber<'a, C> {
     }
 }
 
-/// Normaliza los modifiers ignorando NumLock y CapsLock
+/// Normalize all modifiers ignoring Numlock and CapsLock
 pub fn normalize_modifiers(modifiers: ModMask) -> ModMask {
     modifiers // FIXME:& !(ModMask::M2 | ModMask::LOCK)
 }

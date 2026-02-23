@@ -104,7 +104,7 @@ impl WindowManager {
                                 eprintln!("Error setting focus: {}", err);
                             }
 
-                            if let Err(err) = self.update_window_borders() {
+                            if let Err(err) = self.update_client_borders() {
                                 eprintln!("Error updating borders: {}", err);
                             }
 
@@ -130,8 +130,6 @@ impl WindowManager {
                         let action = data[0];
                         let state1 = data[1];
                         let state2 = data[2];
-
-                        // TODO: call a method to determine if the window is called as fullscreen or float
 
                         if let Err(err) =
                             self.handle_state_request(e.window, action, state1, state2)
