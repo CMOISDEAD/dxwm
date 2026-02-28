@@ -93,6 +93,7 @@ impl Workspace {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct WorkspaceManager {
     pub workspaces: Vec<Workspace>,
     pub current_workspace: u8,
@@ -178,22 +179,26 @@ impl WorkspaceManager {
 impl WindowManager {
     /// Switch to an specific workspace
     pub fn switch_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
-        if workspace_id < 1 || workspace_id > self.workspaces.count() as u8 {
+        if workspace_id < 1 || workspace_id > self.monitors.current().workspaces.count() as u8 {
             return Ok(false);
         }
 
-        if self.workspaces.current_workspace == workspace_id {
+        if self.monitors.current().workspaces.current_workspace == workspace_id {
             return Ok(false);
         }
 
         println!("Switching to workspace {}", workspace_id);
-        self.workspaces.last_workspace = self.workspaces.current_workspace;
+        self.monitors.current_mut().workspaces.last_workspace =
+            self.monitors.current().workspaces.current_workspace;
 
         for &window in self.clients().keys() {
             self.conn.unmap_window(window)?;
         }
 
-        self.workspaces.switch_to(workspace_id);
+        self.monitors
+            .current_mut()
+            .workspaces
+            .switch_to(workspace_id);
 
         for &window in self.clients().keys() {
             self.conn.map_window(window)?;
@@ -212,11 +217,11 @@ impl WindowManager {
 
     /// Move focused client to an specific workspace
     pub fn move_focused_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
-        if self.workspaces.current_workspace == workspace_id {
+        if self.monitors.current().workspaces.current_workspace == workspace_id {
             return Ok(false);
         }
 
-        if workspace_id < 1 || workspace_id > self.workspaces.count() as u8 {
+        if workspace_id < 1 || workspace_id > self.monitors.current().workspaces.count() as u8 {
             return Ok(false);
         }
 
@@ -229,7 +234,9 @@ impl WindowManager {
 
             self.conn.unmap_window(window)?;
 
-            self.workspaces
+            self.monitors
+                .current_mut()
+                .workspaces
                 .move_client_to_workspace(window, workspace_id);
 
             self.layout()?;
@@ -242,7 +249,7 @@ impl WindowManager {
 
     /// Change to the last visited workspace
     pub fn cycle_last_workspace(&mut self) -> Result<()> {
-        let _ = self.switch_to_workspace(self.workspaces.last_workspace);
+        let _ = self.switch_to_workspace(self.monitors.current().workspaces.last_workspace);
 
         Ok(())
     }

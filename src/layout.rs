@@ -35,6 +35,7 @@ impl Default for LayoutConfig {
     }
 }
 
+#[allow(dead_code)]
 impl WindowManager {
     pub fn layout(&mut self) -> Result<()> {
         let non_fullscreen_clients: HashMap<Window, ClientState> = self
@@ -47,7 +48,13 @@ impl WindowManager {
         if non_fullscreen_clients.is_empty() {
             return Ok(());
         }
-        let workspace_layout = self.workspaces.current().layout_config.clone();
+        let workspace_layout = self
+            .monitors
+            .current_mut()
+            .workspaces
+            .current()
+            .layout_config
+            .clone();
 
         match workspace_layout.current {
             LayoutType::MasterStack => self.apply_master_stack_layout()?,
@@ -60,18 +67,22 @@ impl WindowManager {
     }
 
     pub fn apply_master_stack_layout(&mut self) -> Result<()> {
-        let screen = self.conn.setup().roots.get(0).unwrap();
+        let monitor = self.monitors.current().clone();
 
-        self.workspaces.current_mut().sync_clients();
+        self.monitors
+            .current_mut()
+            .workspaces
+            .current_mut()
+            .sync_clients();
 
-        let workspace = self.workspaces.current();
+        let workspace = self.monitors.current().workspaces.current();
 
-        let screen_x = workspace.layout_config.screen_padding;
-        let screen_y = workspace.layout_config.screen_padding;
-        let screen_width =
-            screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
-        let screen_height =
-            screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
+        let padding = workspace.layout_config.screen_padding;
+
+        let screen_width = monitor.width as i16 - padding * 2;
+        let screen_height = monitor.height as i16 - padding * 2;
+        let screen_x = monitor.x.saturating_add(padding);
+        let screen_y = monitor.y.saturating_add(padding);
 
         let gap = workspace.layout_config.gap_size;
         let nmaster = workspace.layout_config.nmaster;
@@ -155,15 +166,21 @@ impl WindowManager {
     }
 
     pub fn apply_monocle_layout(&mut self) -> Result<()> {
-        let screen = self.conn.setup().roots.get(0).unwrap();
+        let monitor = self.monitors.current().clone();
 
-        self.workspaces.current_mut().sync_clients();
+        self.monitors
+            .current_mut()
+            .workspaces
+            .current_mut()
+            .sync_clients();
 
-        let workspace = self.workspaces.current();
-        let x = workspace.layout_config.screen_padding;
-        let y = workspace.layout_config.screen_padding;
-        let width = screen.width_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
-        let height = screen.height_in_pixels as i16 - (workspace.layout_config.screen_padding * 2);
+        let workspace = self.monitors.current().workspaces.current();
+        let padding = workspace.layout_config.screen_padding;
+
+        let x = monitor.x + padding;
+        let y = monitor.y + padding;
+        let width = monitor.width as i16 - padding * 2;
+        let height = monitor.height as i16 - padding * 2;
 
         let clients: Vec<Window> = workspace
             .clients_order()
@@ -222,7 +239,7 @@ impl WindowManager {
     }
 
     pub fn next_layout(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         workspace.layout_config.current = match workspace.layout_config.current {
             LayoutType::MasterStack => LayoutType::Monocle,
@@ -230,13 +247,18 @@ impl WindowManager {
         };
         println!(
             "Layout: {:?}",
-            self.workspaces.current().layout_config.current
+            self.monitors
+                .current()
+                .workspaces
+                .current()
+                .layout_config
+                .current
         );
         self.layout()
     }
 
     pub fn increase_master_ratio(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         workspace.layout_config.master_ratio =
             (workspace.layout_config.master_ratio + 0.05).min(0.95);
@@ -245,7 +267,7 @@ impl WindowManager {
     }
 
     pub fn decrease_master_ratio(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         workspace.layout_config.master_ratio =
             (workspace.layout_config.master_ratio - 0.05).max(0.05);
@@ -254,7 +276,7 @@ impl WindowManager {
     }
 
     pub fn increase_nmaster(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         workspace.layout_config.nmaster += 1;
         println!("Number of masters: {}", workspace.layout_config.nmaster);
@@ -262,7 +284,7 @@ impl WindowManager {
     }
 
     pub fn decrease_nmaster(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         if workspace.layout_config.nmaster > 1 {
             workspace.layout_config.nmaster -= 1;
@@ -273,7 +295,7 @@ impl WindowManager {
     }
 
     pub fn increase_gap(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         workspace.layout_config.gap_size += 5;
         println!("Gap size: {}", workspace.layout_config.gap_size);
@@ -281,20 +303,25 @@ impl WindowManager {
     }
 
     pub fn decrease_gap(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         let gap_size = workspace.layout_config.gap_size;
         workspace.layout_config.gap_size = (gap_size - 5).max(0);
         println!(
             "Gap size: {}",
-            self.workspaces.current().layout_config.gap_size
+            self.monitors
+                .current()
+                .workspaces
+                .current()
+                .layout_config
+                .gap_size
         );
         self.layout()
     }
 
     /// rotate first window to the end
     pub fn rotate_windows(&mut self) -> Result<()> {
-        let workspace = self.workspaces.current_mut();
+        let workspace = self.monitors.current_mut().workspaces.current_mut();
 
         let tiled_clients: Vec<Window> = workspace
             .clients_order()
@@ -335,7 +362,7 @@ impl WindowManager {
     /// promote focused window to master section
     pub fn promote_to_master(&mut self) -> Result<()> {
         if let Some(focused) = self.focused_client() {
-            let workspace = self.workspaces.current_mut();
+            let workspace = self.monitors.current_mut().workspaces.current_mut();
 
             if let Some(pos) = workspace.clients_order.iter().position(|&w| w == focused) {
                 if pos > 0 {

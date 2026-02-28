@@ -71,32 +71,41 @@ impl ClientState {
 impl WindowManager {
     /// Returns the clients order
     pub fn clients_order(&self) -> &Vec<Window> {
-        &self.workspaces.current().clients_order
+        &self.monitors.current().workspaces.current().clients_order
     }
 
     /// Returns the clients order (mutable)
     pub fn clients_order_mut(&mut self) -> &mut Vec<Window> {
-        &mut self.workspaces.current_mut().clients_order
+        &mut self
+            .monitors
+            .current_mut()
+            .workspaces
+            .current_mut()
+            .clients_order
     }
 
     /// Return all the clients
     pub fn clients(&self) -> &HashMap<Window, ClientState> {
-        &self.workspaces.current().clients
+        &self.monitors.current().workspaces.current().clients
     }
 
     /// Return all the clients (mutable)
     pub fn clients_mut(&mut self) -> &mut HashMap<Window, ClientState> {
-        &mut self.workspaces.current_mut().clients
+        &mut self.monitors.current_mut().workspaces.current_mut().clients
     }
 
     /// Return the focused client Xid
     pub fn focused_client(&self) -> Option<Window> {
-        self.workspaces.current().focused_client
+        self.monitors.current().workspaces.current().focused_client
     }
 
     /// Set a specified client with focus state
     pub fn set_focused_client(&mut self, window: Option<Window>) {
-        self.workspaces.current_mut().focused_client = window;
+        self.monitors
+            .current_mut()
+            .workspaces
+            .current_mut()
+            .focused_client = window;
     }
 
     /// Manage all the clients
@@ -107,7 +116,9 @@ impl WindowManager {
 
         let initial_state = ClientState::default();
 
-        self.workspaces
+        self.monitors
+            .current_mut()
+            .workspaces
             .current_mut()
             .add_client(client, initial_state);
 
@@ -171,7 +182,11 @@ impl WindowManager {
     pub fn unmanage_client(&mut self, window: Window) -> Result<()> {
         println!("Unmanaging client: {}", window);
 
-        self.workspaces.current_mut().remove_client(window);
+        self.monitors
+            .current_mut()
+            .workspaces
+            .current_mut()
+            .remove_client(window);
 
         if self.focused_client() == Some(window) {
             if !self.clients().is_empty() {
@@ -202,7 +217,7 @@ impl WindowManager {
             return Ok(());
         }
 
-        let clients: Vec<Window> = self.workspaces.current().clients_order();
+        let clients: Vec<Window> = self.monitors.current().workspaces.current().clients_order();
 
         if clients.len() == 1 {
             return Ok(());
@@ -240,7 +255,7 @@ impl WindowManager {
             return Ok(());
         }
 
-        let windows: Vec<Window> = self.workspaces.current().clients_order();
+        let windows: Vec<Window> = self.monitors.current().workspaces.current().clients_order();
 
         if windows.len() == 1 {
             return Ok(());
@@ -280,7 +295,7 @@ impl WindowManager {
     /// swap client position with the next client in the current workspace
     pub fn swap_next(&mut self) -> Result<()> {
         if let Some(focused) = self.focused_client() {
-            let workspace = self.workspaces.current_mut();
+            let workspace = self.monitors.current_mut().workspaces.current_mut();
 
             let clients: Vec<Window> = workspace
                 .clients_order()
@@ -316,7 +331,7 @@ impl WindowManager {
     /// swap client position with the prev client in the current workspace
     pub fn swap_prev(&mut self) -> Result<()> {
         if let Some(focused) = self.focused_client() {
-            let workspace = self.workspaces.current_mut();
+            let workspace = self.monitors.current_mut().workspaces.current_mut();
 
             let clients: Vec<Window> = workspace
                 .clients_order()
@@ -472,17 +487,17 @@ impl WindowManager {
         println!("Setting client {} to fullscreen", window);
 
         let geometry = {
-            let screen = self.conn.setup().roots.get(0).unwrap();
-            (screen.width_in_pixels, screen.height_in_pixels)
+            let monitor = self.monitors.current();
+            (monitor.x, monitor.y, monitor.width, monitor.height)
         };
 
-        let (width, height) = geometry;
+        let (x, y, width, height) = geometry;
 
         self.conn.configure_window(
             window,
             &ConfigureWindowAux::new()
-                .x(0)
-                .y(0)
+                .x(x as i32)
+                .y(y as i32)
                 .width(width as u32)
                 .height(height as u32)
                 .border_width(0)
@@ -505,8 +520,8 @@ impl WindowManager {
             state.save_geometry();
             state.is_fullscreen = true;
 
-            state.x = 0;
-            state.y = 0;
+            state.x = x;
+            state.y = y;
             state.width = width;
             state.height = height;
         }

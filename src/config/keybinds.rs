@@ -67,6 +67,52 @@ impl WindowManager {
             }
         }
 
+        // Super+, (comma): Cambiar al monitor anterior
+        if let Some(key) = grabber.keysym_to_keycode(XK_COMMA) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4,
+                KeyAction::Custom(|wm| {
+                    wm.focus_prev_monitor().ok();
+                }),
+            );
+        }
+
+        // Super+. (period): Cambiar al monitor siguiente
+        if let Some(key) = grabber.keysym_to_keycode(XK_PERIOD) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4,
+                KeyAction::Custom(|wm| {
+                    wm.focus_next_monitor().ok();
+                }),
+            );
+        }
+
+        // Super+Shift+, (comma): Mover ventana al monitor anterior
+        if let Some(key) = grabber.keysym_to_keycode(XK_COMMA) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4 | ModMask::SHIFT,
+                KeyAction::Custom(|wm| {
+                    let prev_monitor = wm.monitors.prev_monitor_id();
+                    wm.move_focused_to_monitor(prev_monitor).ok();
+                }),
+            );
+        }
+
+        // Super+Shift+. (period): Mover ventana al monitor siguiente
+        if let Some(key) = grabber.keysym_to_keycode(XK_PERIOD) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4 | ModMask::SHIFT,
+                KeyAction::Custom(|wm| {
+                    let next_monitor = wm.monitors.next_monitor_id();
+                    wm.move_focused_to_monitor(next_monitor).ok();
+                }),
+            );
+        }
+
         if let Some(key) = grabber.keysym_to_keycode(XK_ESCAPE) {
             self.keybindings
                 .bind_normal(key, ModMask::M4 | ModMask::SHIFT, KeyAction::Quit);
@@ -114,7 +160,12 @@ impl WindowManager {
                     wm.next_layout().ok();
                     wm.draw_alert(format!(
                         "[LAY] {:?}",
-                        wm.workspaces.current().layout_config.current
+                        wm.monitors
+                            .current()
+                            .workspaces
+                            .current()
+                            .layout_config
+                            .current
                     ))
                     .ok();
                 }),
@@ -219,6 +270,20 @@ impl WindowManager {
                 ModMask::M4,
                 KeyAction::Custom(|wm| {
                     wm.clear_alerts().ok();
+                }),
+            );
+        }
+
+        if let Some(key) = grabber.keysym_to_keycode(XK_R) {
+            self.keybindings.bind_normal(
+                key,
+                ModMask::M4 | ModMask::SHIFT,
+                KeyAction::Custom(|wm| {
+                    println!("🔄 Manually refreshing monitors...");
+                    if let Ok(changes) = wm.monitors.refresh(&wm.conn, wm.root) {
+                        wm.handle_monitor_changes(changes).ok();
+                        wm.draw_alert("Monitors refreshed".to_string()).ok();
+                    }
                 }),
             );
         }

@@ -6,6 +6,7 @@ mod config;
 mod keybindings;
 mod keyboard;
 mod layout;
+mod monitors;
 mod utils;
 mod wm;
 mod workspaces;

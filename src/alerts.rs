@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::thread;
 use std::time::{Duration, Instant};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -39,16 +40,16 @@ impl WindowManager {
 
         let alert_id = self.conn.generate_id()?;
         let gc_id = self.conn.generate_id()?;
-        let rect = self.position(Position::BottomRight, 200, 50);
+        let geom = self.position(Position::BottomRight, 200, 50);
 
         self.conn.create_window(
             COPY_DEPTH_FROM_PARENT,
             alert_id,
             self.root,
-            rect.x as i16,
-            rect.y as i16,
-            rect.width as u16,
-            rect.height as u16,
+            geom.x as i16,
+            geom.y as i16,
+            geom.width as u16,
+            geom.height as u16,
             1,
             WindowClass::INPUT_OUTPUT,
             0,
@@ -87,6 +88,10 @@ impl WindowManager {
             created_at: Instant::now(),
         });
 
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(3));
+        });
+
         Ok(())
     }
 
@@ -102,6 +107,10 @@ impl WindowManager {
 
     pub fn clear_old_alerts(&mut self) -> Result<()> {
         let timeout = Duration::from_secs(3);
+
+        if self.keybindings.is_in_submap() {
+            return Ok(());
+        }
 
         self.alerts.retain(|alert| {
             if alert.created_at.elapsed() > timeout {
@@ -137,38 +146,36 @@ impl WindowManager {
     }
 
     fn position(&self, pos: Position, win_w: u32, win_h: u32) -> Rect {
-        let mut rect = Rect {
-            x: 0,
-            y: 0,
-            width: win_w,
-            height: win_h,
-        };
-        let screen_geom = self.conn.setup().roots.get(0).unwrap();
+        let monitor = self.monitors.current();
         let margin = MARGIN;
 
-        match pos {
-            Position::TopLeft => {
-                rect.x = margin;
-                rect.y = margin;
-            }
+        let (relative_x, relative_y) = match pos {
+            Position::TopLeft => (margin, margin),
             Position::TopRight => {
-                rect.x = screen_geom.width_in_pixels as u32 - (margin + win_w);
-                rect.y = margin;
+                let x = monitor.width.saturating_sub(win_w as u16 + margin as u16);
+                (x as u32, margin)
             }
             Position::Center => {
-                rect.x = ((screen_geom.width_in_pixels.saturating_sub(win_w as u16)) / 2) as u32;
-                rect.y = ((screen_geom.height_in_pixels.saturating_sub(win_h as u16)) / 2) as u32;
+                let x = monitor.width.saturating_sub(win_w as u16) / 2;
+                let y = monitor.height.saturating_sub(win_h as u16) / 2;
+                (x as u32, y as u32)
             }
             Position::BottomLeft => {
-                rect.x = margin;
-                rect.y = screen_geom.height_in_pixels as u32 - (margin + win_h);
+                let y = monitor.height.saturating_sub(win_h as u16 + margin as u16);
+                (margin, y as u32)
             }
             Position::BottomRight => {
-                rect.x = screen_geom.width_in_pixels as u32 - (margin + win_w);
-                rect.y = screen_geom.height_in_pixels as u32 - (margin + win_h);
+                let x = monitor.width.saturating_sub(win_w as u16 + margin as u16);
+                let y = monitor.height.saturating_sub(win_h as u16 + margin as u16);
+                (x as u32, y as u32)
             }
         };
 
-        rect
+        Rect {
+            x: monitor.x as u32 + relative_x,
+            y: monitor.y as u32 + relative_y,
+            width: win_w,
+            height: win_h,
+        }
     }
 }

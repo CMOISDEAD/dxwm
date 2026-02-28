@@ -5,18 +5,13 @@ use crate::wm::WindowManager;
 
 impl WindowManager {
     pub fn banish(&mut self) -> Result<()> {
-        let screen_geom = self.conn.setup().roots.get(0).unwrap();
+        let monitor = self.monitors.current();
 
-        self.conn.warp_pointer(
-            x11rb::NONE,
-            self.root,
-            0,
-            0,
-            0,
-            0,
-            screen_geom.width_in_pixels as i16,
-            screen_geom.height_in_pixels as i16,
-        )?;
+        let x = monitor.x + monitor.width as i16;
+        let y = monitor.y + monitor.height as i16;
+
+        self.conn
+            .warp_pointer(x11rb::NONE, self.root, 0, 0, 0, 0, x, y)?;
 
         self.conn.flush()?;
         Ok(())

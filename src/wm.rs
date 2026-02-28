@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use x11rb::connection::Connection;
+use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xproto::*;
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -9,8 +12,8 @@ use crate::alerts::Alert;
 use crate::atoms::Atoms;
 use crate::config::config::{BORDER_FOCUSED, BORDER_UNFOCUSED, BORDER_WIDTH};
 use crate::keybindings::KeyBindingManager;
+use crate::monitors::MonitorManager;
 use crate::utils::run_autostart;
-use crate::workspaces::WorkspaceManager;
 
 pub struct WindowManager {
     pub conn: RustConnection,
@@ -21,7 +24,7 @@ pub struct WindowManager {
     pub border_unfocused_color: u32,
     pub keybindings: KeyBindingManager,
     pub alerts: Vec<Alert>,
-    pub workspaces: WorkspaceManager,
+    pub monitors: MonitorManager,
     pub atoms: Atoms,
 }
 
@@ -43,6 +46,13 @@ impl WindowManager {
                 | EventMask::PROPERTY_CHANGE,
         );
 
+        conn.randr_select_input(
+            root,
+            x11rb::protocol::randr::NotifyMask::SCREEN_CHANGE
+                | x11rb::protocol::randr::NotifyMask::CRTC_CHANGE
+                | x11rb::protocol::randr::NotifyMask::OUTPUT_CHANGE,
+        )?;
+
         conn.change_window_attributes(root, &change)?
             .check()
             .context("Another window manager is already running")?;
@@ -50,6 +60,7 @@ impl WindowManager {
         conn.flush()?;
 
         let atoms = Atoms::new(&conn)?;
+        let monitors = MonitorManager::detect(&conn, root, 9)?;
 
         Ok(Self {
             conn,
@@ -57,7 +68,7 @@ impl WindowManager {
             root,
             keybindings: KeyBindingManager::new(),
             alerts: Vec::new(),
-            workspaces: WorkspaceManager::new(9),
+            monitors,
             border_width: BORDER_WIDTH,
             border_focused_color: BORDER_FOCUSED,
             border_unfocused_color: BORDER_UNFOCUSED,
@@ -69,77 +80,93 @@ impl WindowManager {
         run_autostart();
 
         loop {
-            let event = self.conn.wait_for_event()?;
+            while let Some(event) = self.conn.poll_for_event()? {
+                self.handle_event(event)?;
+            }
 
-            match event {
-                Event::KeyPress(e) => {
-                    if let Err(err) = self.handle_key_press(&e) {
-                        eprintln!("Error handling key press: {}", err);
-                    }
-                }
-                Event::MapRequest(e) => {
-                    if let Err(err) = self.manage_client(e) {
-                        eprintln!("Error managing client: {}", err);
-                    }
-                }
-                Event::UnmapNotify(e) => {
-                    if let Err(err) = self.unmanage_client(e.window) {
-                        eprintln!("Error unmanaging client: {}", err);
-                    }
-                }
-                Event::DestroyNotify(e) => {
-                    if let Err(err) = self.unmanage_client(e.window) {
-                        eprintln!("Error on destroy notify: {}", err);
-                    }
-                }
-                Event::EnterNotify(e) => {
-                    if self.clients().contains_key(&e.event) {
-                        if self.focused_client() != Some(e.event) {
-                            self.set_focused_client(Some(e.event));
+            self.clear_old_alerts()?;
 
-                            if let Err(err) =
-                                self.conn
-                                    .set_input_focus(InputFocus::PARENT, e.event, CURRENT_TIME)
-                            {
-                                eprintln!("Error setting focus: {}", err);
-                            }
+            std::thread::sleep(Duration::from_millis(32));
+        }
+    }
 
-                            if let Err(err) = self.update_client_borders() {
-                                eprintln!("Error updating borders: {}", err);
-                            }
-
-                            if let Err(err) = self.conn.flush() {
-                                eprintln!("Error flushing: {}", err);
-                            }
-                        }
-                    }
+    fn handle_event(&mut self, event: Event) -> Result<()> {
+        match event {
+            Event::KeyPress(e) => {
+                if let Err(err) = self.handle_key_press(&e) {
+                    eprintln!("Error handling key press: {}", err);
                 }
-                Event::Expose(e) => {
-                    if let Some(alert) = self.alerts.iter().find(|a| a.window == e.window) {
-                        if e.count == 0 {
-                            if let Err(err) = self.redraw_alert(alert) {
-                                eprintln!("Error redrawing alert: {}", err);
-                            }
-                        }
-                    }
+            }
+            Event::MapRequest(e) => {
+                if let Err(err) = self.manage_client(e) {
+                    eprintln!("Error managing client: {}", err);
                 }
-                Event::ClientMessage(e) => {
-                    if e.type_ == self.atoms.net_wm_state {
-                        let data = e.data.as_data32();
-
-                        let action = data[0];
-                        let state1 = data[1];
-                        let state2 = data[2];
+            }
+            Event::UnmapNotify(e) => {
+                if let Err(err) = self.unmanage_client(e.window) {
+                    eprintln!("Error unmanaging client: {}", err);
+                }
+            }
+            Event::DestroyNotify(e) => {
+                if let Err(err) = self.unmanage_client(e.window) {
+                    eprintln!("Error on destroy notify: {}", err);
+                }
+            }
+            Event::EnterNotify(e) => {
+                if self.clients().contains_key(&e.event) {
+                    if self.focused_client() != Some(e.event) {
+                        // TODO: focus respective monitor
+                        self.set_focused_client(Some(e.event));
 
                         if let Err(err) =
-                            self.handle_state_request(e.window, action, state1, state2)
+                            self.conn
+                                .set_input_focus(InputFocus::PARENT, e.event, CURRENT_TIME)
                         {
-                            eprintln!("Error handling state request: {}", err);
+                            eprintln!("Error setting focus: {}", err);
+                        }
+
+                        if let Err(err) = self.update_client_borders() {
+                            eprintln!("Error updating borders: {}", err);
+                        }
+
+                        if let Err(err) = self.conn.flush() {
+                            eprintln!("Error flushing: {}", err);
                         }
                     }
                 }
-                _ => {}
             }
+            Event::Expose(e) => {
+                if let Some(alert) = self.alerts.iter().find(|a| a.window == e.window) {
+                    if e.count == 0 {
+                        if let Err(err) = self.redraw_alert(alert) {
+                            eprintln!("Error redrawing alert: {}", err);
+                        }
+                    }
+                }
+            }
+            Event::ClientMessage(e) => {
+                if e.type_ == self.atoms.net_wm_state {
+                    let data = e.data.as_data32();
+
+                    let action = data[0];
+                    let state1 = data[1];
+                    let state2 = data[2];
+
+                    if let Err(err) = self.handle_state_request(e.window, action, state1, state2) {
+                        eprintln!("Error handling state request: {}", err);
+                    }
+                }
+            }
+            Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => {
+                println!("Monitor configuration changed, refreshing...");
+
+                if let Ok(changes) = self.monitors.refresh(&self.conn, self.root) {
+                    self.handle_monitor_changes(changes)?;
+                }
+            }
+            _ => {}
         }
+
+        Ok(())
     }
 }
