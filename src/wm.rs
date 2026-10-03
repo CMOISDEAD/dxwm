@@ -1,87 +1,122 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use x11rb::connection::Connection;
-use x11rb::protocol::randr::ConnectionExt as _;
-use x11rb::protocol::xproto::*;
+use x11rb::connection::{Connection, RequestConnection};
 use x11rb::protocol::Event;
+use x11rb::protocol::randr::{self, ConnectionExt as _};
+use x11rb::protocol::xproto::*;
 use x11rb::rust_connection::RustConnection;
-use x11rb::CURRENT_TIME;
 
 use crate::alerts::Alert;
 use crate::atoms::Atoms;
-use crate::config::config::{BORDER_FOCUSED, BORDER_UNFOCUSED, BORDER_WIDTH};
+use crate::config::NUM_WORKSPACES;
 use crate::keybindings::KeyBindingManager;
 use crate::monitors::MonitorManager;
 use crate::utils::run_autostart;
 
 pub struct WindowManager {
     pub conn: RustConnection,
-    pub screen_num: usize,
     pub root: Window,
-    pub border_width: u32,
-    pub border_focused_color: u32,
-    pub border_unfocused_color: u32,
     pub keybindings: KeyBindingManager,
     pub alerts: Vec<Alert>,
     pub monitors: MonitorManager,
     pub atoms: Atoms,
+    /// Unmaps requested by us that haven't generated their UnmapNotify yet
+    pub pending_unmaps: HashMap<Window, u32>,
+    /// EnterNotify events older than this request were caused by our own
+    /// configure/map/warp requests, not by the user moving the mouse
+    pub enter_barrier: u64,
 }
 
 impl WindowManager {
+    /// Connect to the X server and become its window manager
     pub fn new() -> Result<Self> {
         let (conn, screen_num) =
             RustConnection::connect(None).context("Failed to connect to X server")?;
 
-        let setup = conn.setup();
-        let screen = &setup.roots[screen_num];
-        let root = screen.root;
+        let root = conn.setup().roots[screen_num].root;
 
         let change = ChangeWindowAttributesAux::default().event_mask(
             EventMask::SUBSTRUCTURE_REDIRECT
                 | EventMask::SUBSTRUCTURE_NOTIFY
-                | EventMask::BUTTON_PRESS
                 | EventMask::ENTER_WINDOW
-                | EventMask::STRUCTURE_NOTIFY
-                | EventMask::PROPERTY_CHANGE,
+                | EventMask::POINTER_MOTION
+                | EventMask::STRUCTURE_NOTIFY,
         );
 
-        conn.randr_select_input(
-            root,
-            x11rb::protocol::randr::NotifyMask::SCREEN_CHANGE
-                | x11rb::protocol::randr::NotifyMask::CRTC_CHANGE
-                | x11rb::protocol::randr::NotifyMask::OUTPUT_CHANGE,
-        )?;
-
+        // Only one client can select SubstructureRedirect on the root
         conn.change_window_attributes(root, &change)?
             .check()
             .context("Another window manager is already running")?;
 
-        conn.flush()?;
-
         let atoms = Atoms::new(&conn)?;
-        let monitors = MonitorManager::detect(&conn, root, 9)?;
+        // Also negotiates the RandR version, must happen before selecting its events
+        let monitors = MonitorManager::detect(&conn, root, NUM_WORKSPACES)?;
+
+        if conn
+            .extension_information(randr::X11_EXTENSION_NAME)?
+            .is_some()
+        {
+            conn.randr_select_input(
+                root,
+                randr::NotifyMask::SCREEN_CHANGE | randr::NotifyMask::CRTC_CHANGE,
+            )?;
+        }
+
+        conn.flush()?;
 
         Ok(Self {
             conn,
-            screen_num,
             root,
-            keybindings: KeyBindingManager::new(),
+            keybindings: KeyBindingManager::default(),
             alerts: Vec::new(),
             monitors,
-            border_width: BORDER_WIDTH,
-            border_focused_color: BORDER_FOCUSED,
-            border_unfocused_color: BORDER_UNFOCUSED,
             atoms,
+            pending_unmaps: HashMap::new(),
+            enter_barrier: 0,
         })
     }
 
+    /// Mark every EnterNotify generated up to now as stale, so windows moving under
+    /// a still pointer don't steal the focus
+    pub fn ignore_pending_enters(&mut self) -> Result<()> {
+        self.enter_barrier = self.conn.no_operation()?.sequence_number();
+        Ok(())
+    }
+
+    /// Focus follows the mouse, across clients and empty monitors
+    fn handle_enter_notify(&mut self, e: EnterNotifyEvent) -> Result<()> {
+        // Events carry the 16 lower bits of the last request processed by the server
+        let stale = (e.sequence.wrapping_sub(self.enter_barrier as u16) as i16) < 0;
+        if stale {
+            return Ok(());
+        }
+
+        if e.event == self.root {
+            return self.focus_monitor_at(e.root_x, e.root_y);
+        }
+
+        if e.mode != NotifyMode::NORMAL || e.detail == NotifyDetail::INFERIOR {
+            return Ok(());
+        }
+
+        if self.focused_client() != Some(e.event) {
+            self.set_focused_client(e.event)?;
+        }
+
+        Ok(())
+    }
+
+    /// Main loop. Events are polled instead of waited for so alerts can expire
     pub fn run(&mut self) -> Result<()> {
         run_autostart();
 
         loop {
             while let Some(event) = self.conn.poll_for_event()? {
-                self.handle_event(event)?;
+                if let Err(err) = self.handle_event(event) {
+                    eprintln!("Error handling event: {:#}", err);
+                }
             }
 
             self.clear_old_alerts()?;
@@ -92,81 +127,29 @@ impl WindowManager {
 
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
-            Event::KeyPress(e) => {
-                if let Err(err) = self.handle_key_press(&e) {
-                    eprintln!("Error handling key press: {}", err);
+            Event::KeyPress(e) => self.handle_key_press(&e),
+            Event::MapRequest(e) => self.manage_client(e),
+            Event::UnmapNotify(e) => self.unmanage_client(e.window, false),
+            Event::DestroyNotify(e) => self.unmanage_client(e.window, true),
+            Event::EnterNotify(e) => self.handle_enter_notify(e),
+            // Only reaches us while the pointer is over the root (empty monitor area)
+            Event::MotionNotify(e) => self.focus_monitor_at(e.root_x, e.root_y),
+            Event::Expose(e) if e.count == 0 => {
+                match self.alerts.iter().find(|a| a.window == e.window) {
+                    Some(alert) => self.redraw_alert(alert),
+                    None => Ok(()),
                 }
             }
-            Event::MapRequest(e) => {
-                if let Err(err) = self.manage_client(e) {
-                    eprintln!("Error managing client: {}", err);
-                }
+            Event::ClientMessage(e) if e.type_ == self.atoms.net_wm_state => {
+                self.handle_state_request(e)
             }
-            Event::UnmapNotify(e) => {
-                if let Err(err) = self.unmanage_client(e.window) {
-                    eprintln!("Error unmanaging client: {}", err);
-                }
+            // Outputs changed (e.g. the user ran xrandr)
+            Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
+            Event::Error(e) => {
+                eprintln!("X11 error: {:?}", e);
+                Ok(())
             }
-            Event::DestroyNotify(e) => {
-                if let Err(err) = self.unmanage_client(e.window) {
-                    eprintln!("Error on destroy notify: {}", err);
-                }
-            }
-            Event::EnterNotify(e) => {
-                if self.clients().contains_key(&e.event) {
-                    if self.focused_client() != Some(e.event) {
-                        // TODO: focus respective monitor
-                        self.set_focused_client(Some(e.event));
-
-                        if let Err(err) =
-                            self.conn
-                                .set_input_focus(InputFocus::PARENT, e.event, CURRENT_TIME)
-                        {
-                            eprintln!("Error setting focus: {}", err);
-                        }
-
-                        if let Err(err) = self.update_client_borders() {
-                            eprintln!("Error updating borders: {}", err);
-                        }
-
-                        if let Err(err) = self.conn.flush() {
-                            eprintln!("Error flushing: {}", err);
-                        }
-                    }
-                }
-            }
-            Event::Expose(e) => {
-                if let Some(alert) = self.alerts.iter().find(|a| a.window == e.window) {
-                    if e.count == 0 {
-                        if let Err(err) = self.redraw_alert(alert) {
-                            eprintln!("Error redrawing alert: {}", err);
-                        }
-                    }
-                }
-            }
-            Event::ClientMessage(e) => {
-                if e.type_ == self.atoms.net_wm_state {
-                    let data = e.data.as_data32();
-
-                    let action = data[0];
-                    let state1 = data[1];
-                    let state2 = data[2];
-
-                    if let Err(err) = self.handle_state_request(e.window, action, state1, state2) {
-                        eprintln!("Error handling state request: {}", err);
-                    }
-                }
-            }
-            Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => {
-                println!("Monitor configuration changed, refreshing...");
-
-                if let Ok(changes) = self.monitors.refresh(&self.conn, self.root) {
-                    self.handle_monitor_changes(changes)?;
-                }
-            }
-            _ => {}
+            _ => Ok(()),
         }
-
-        Ok(())
     }
 }

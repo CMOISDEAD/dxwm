@@ -1,379 +1,111 @@
-use std::collections::HashMap;
-
-use crate::clients::ClientState;
-use crate::config::config::MARGIN;
-use crate::wm::WindowManager;
 use anyhow::Result;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
-use x11rb::CURRENT_TIME;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LayoutType {
-    MasterStack,
-    Monocle,
-}
+use crate::config::{BORDER_WIDTH, MARGIN};
+use crate::wm::WindowManager;
 
-#[derive(Debug, Clone)]
-pub struct LayoutConfig {
-    pub current: LayoutType,
-    pub master_ratio: f32,
-    pub nmaster: usize,
-    pub gap_size: i16,
-    pub screen_padding: i16,
-}
-
-impl Default for LayoutConfig {
-    fn default() -> Self {
-        Self {
-            current: LayoutType::MasterStack,
-            master_ratio: 0.5,
-            nmaster: 1,
-            gap_size: MARGIN as i16,
-            screen_padding: MARGIN as i16,
-        }
-    }
-}
-
-#[allow(dead_code)]
 impl WindowManager {
+    /// Arrange the visible workspace of the current monitor
     pub fn layout(&mut self) -> Result<()> {
-        let non_fullscreen_clients: HashMap<Window, ClientState> = self
-            .clients()
+        self.layout_monitor(self.monitors.current_monitor)
+    }
+
+    pub fn layout_all_monitors(&mut self) -> Result<()> {
+        for monitor_id in 0..self.monitors.count() {
+            self.layout_monitor(monitor_id)?;
+        }
+        Ok(())
+    }
+
+    /// Arrange the visible workspace of a monitor: the focused client fills the
+    /// monitor, fullscreen clients cover it and the rest are parked off-screen
+    /// (kept mapped, so switching between them is instant)
+    pub fn layout_monitor(&mut self, monitor_id: usize) -> Result<()> {
+        let Some(monitor) = self.monitors.get(monitor_id) else {
+            return Ok(());
+        };
+
+        let (mon_x, mon_y) = (monitor.x as i32, monitor.y as i32);
+        let (mon_width, mon_height) = (monitor.width as i32, monitor.height as i32);
+
+        let margin = MARGIN as i32;
+        let (x, y) = (mon_x + margin, mon_y + margin);
+        let (width, height) = (mon_width - margin * 2, mon_height - margin * 2);
+
+        let workspace = monitor.workspaces.current();
+
+        // A fullscreen focused client covers everything, show the first tiled one below
+        let shown = workspace
+            .focused_client
+            .filter(|&w| workspace.get(w).is_some_and(|c| !c.fullscreen))
+            .or_else(|| {
+                workspace
+                    .clients
+                    .iter()
+                    .find(|c| !c.fullscreen)
+                    .map(|c| c.window)
+            });
+
+        let clients: Vec<(Window, bool)> = workspace
+            .clients
             .iter()
-            .filter(|(_, state)| !state.is_fullscreen)
-            .map(|(&w, s)| (w, s.clone()))
+            .map(|c| (c.window, c.fullscreen))
             .collect();
 
-        if non_fullscreen_clients.is_empty() {
-            return Ok(());
-        }
-        let workspace_layout = self
-            .monitors
-            .current_mut()
-            .workspaces
-            .current()
-            .layout_config
-            .clone();
-
-        match workspace_layout.current {
-            LayoutType::MasterStack => self.apply_master_stack_layout()?,
-            LayoutType::Monocle => self.apply_monocle_layout()?,
+        for (window, fullscreen) in clients {
+            if fullscreen {
+                self.configure_client(window, mon_x, mon_y, mon_width, mon_height, 0)?;
+                self.conn.configure_window(
+                    window,
+                    &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
+                )?;
+            } else if Some(window) == shown {
+                self.configure_client(window, x, y, width, height, BORDER_WIDTH)?;
+            } else {
+                // Monitors never have negative coordinates, so this is outside all of them
+                self.configure_client(window, -2 * mon_width, y, width, height, BORDER_WIDTH)?;
+            }
         }
 
         self.restack_alerts()?;
+        self.ignore_pending_enters()?;
         self.conn.flush()?;
         Ok(())
     }
 
-    pub fn apply_master_stack_layout(&mut self) -> Result<()> {
-        let monitor = self.monitors.current().clone();
-
-        self.monitors
-            .current_mut()
-            .workspaces
-            .current_mut()
-            .sync_clients();
-
-        let workspace = self.monitors.current().workspaces.current();
-
-        let padding = workspace.layout_config.screen_padding;
-
-        let screen_width = monitor.width as i16 - padding * 2;
-        let screen_height = monitor.height as i16 - padding * 2;
-        let screen_x = monitor.x.saturating_add(padding);
-        let screen_y = monitor.y.saturating_add(padding);
-
-        let gap = workspace.layout_config.gap_size;
-        let nmaster = workspace.layout_config.nmaster;
-
-        let clients: Vec<Window> = workspace
-            .clients_order()
-            .into_iter()
-            .filter(|w| {
-                if let Some(state) = workspace.clients.get(w) {
-                    !state.is_fullscreen
-                } else {
-                    false
-                }
-            })
-            .collect();
-
-        let n_clients = clients.len();
-
-        if n_clients == 0 {
-            return Ok(());
-        }
-
-        if n_clients == 1 {
-            let client = clients[0];
-            self.configure_client(client, screen_x, screen_y, screen_width, screen_height)?;
-            return Ok(());
-        }
-
-        let n_master = nmaster.min(n_clients);
-        let n_stack = n_clients - n_master;
-
-        let master_width = if n_stack > 0 {
-            ((screen_width as f32 * workspace.layout_config.master_ratio) as i16) - gap
-        } else {
-            screen_width
-        };
-
-        let stack_width = if n_stack > 0 {
-            screen_width - master_width - gap
-        } else {
-            0
-        };
-
-        // Master
-        if n_master == 1 {
-            let client = clients[0];
-            self.configure_client(client, screen_x, screen_y, master_width, screen_height)?;
-        } else {
-            let master_height = (screen_height - (gap * (n_master as i16 - 1))) / n_master as i16;
-
-            for (i, &client) in clients.iter().take(n_master).enumerate() {
-                let y = screen_y + (i as i16 * (master_height + gap));
-                let h = if i == n_master - 1 {
-                    screen_height - (i as i16 * (master_height + gap))
-                } else {
-                    master_height
-                };
-
-                self.configure_client(client, screen_x, y, master_width, h)?;
-            }
-        }
-
-        // Stack
-        if n_stack > 0 {
-            let stack_x = screen_x + master_width + gap;
-            let stack_height = (screen_height - (gap * (n_stack as i16 - 1))) / n_stack as i16;
-
-            for (i, &client) in clients.iter().skip(n_master).enumerate() {
-                let y = screen_y + (i as i16 * (stack_height + gap));
-                let h = if i == n_stack - 1 {
-                    screen_height - (i as i16 * (stack_height + gap))
-                } else {
-                    stack_height
-                };
-
-                self.configure_client(client, stack_x, y, stack_width, h)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn apply_monocle_layout(&mut self) -> Result<()> {
-        let monitor = self.monitors.current().clone();
-
-        self.monitors
-            .current_mut()
-            .workspaces
-            .current_mut()
-            .sync_clients();
-
-        let workspace = self.monitors.current().workspaces.current();
-        let padding = workspace.layout_config.screen_padding;
-
-        let x = monitor.x + padding;
-        let y = monitor.y + padding;
-        let width = monitor.width as i16 - padding * 2;
-        let height = monitor.height as i16 - padding * 2;
-
-        let clients: Vec<Window> = workspace
-            .clients_order()
-            .into_iter()
-            .filter(|w| {
-                if let Some(state) = workspace.clients.get(w) {
-                    !state.is_fullscreen
-                } else {
-                    false
-                }
-            })
-            .collect();
-
-        for client in clients {
-            self.configure_client(client, x, y, width, height)?;
-        }
-
-        if let Some(focused) = self.focused_client() {
-            self.conn.configure_window(
-                focused,
-                &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
-            )?;
-        }
-
-        Ok(())
-    }
-
+    /// Move and resize a client. `width` and `height` include the border
     fn configure_client(
         &mut self,
         window: Window,
-        x: i16,
-        y: i16,
-        width: i16,
-        height: i16,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        border: u32,
     ) -> Result<()> {
-        let width = width.max(50);
-        let height = height.max(50);
+        let x = x.clamp(i16::MIN as i32, i16::MAX as i32);
+        let y = y.clamp(i16::MIN as i32, i16::MAX as i32);
+        let inner_width = (width - 2 * border as i32).clamp(1, u16::MAX as i32);
+        let inner_height = (height - 2 * border as i32).clamp(1, u16::MAX as i32);
 
         self.conn.configure_window(
             window,
             &ConfigureWindowAux::new()
-                .x(x as i32)
-                .y(y as i32)
-                .width(width as u32)
-                .height(height as u32),
+                .x(x)
+                .y(y)
+                .width(inner_width as u32)
+                .height(inner_height as u32)
+                .border_width(border),
         )?;
 
-        if let Some(state) = self.clients_mut().get_mut(&window) {
-            state.x = x;
-            state.y = y;
-            state.width = width as u16;
-            state.height = height as u16;
+        if let Some(client) = self.client_mut(window) {
+            client.x = x as i16;
+            client.y = y as i16;
+            client.width = width as u16;
+            client.height = height as u16;
         }
 
-        Ok(())
-    }
-
-    pub fn next_layout(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        workspace.layout_config.current = match workspace.layout_config.current {
-            LayoutType::MasterStack => LayoutType::Monocle,
-            LayoutType::Monocle => LayoutType::MasterStack,
-        };
-        println!(
-            "Layout: {:?}",
-            self.monitors
-                .current()
-                .workspaces
-                .current()
-                .layout_config
-                .current
-        );
-        self.layout()
-    }
-
-    pub fn increase_master_ratio(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        workspace.layout_config.master_ratio =
-            (workspace.layout_config.master_ratio + 0.05).min(0.95);
-        println!("Master ratio: {:.2}", workspace.layout_config.master_ratio);
-        self.layout()
-    }
-
-    pub fn decrease_master_ratio(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        workspace.layout_config.master_ratio =
-            (workspace.layout_config.master_ratio - 0.05).max(0.05);
-        println!("Master ratio: {:.2}", workspace.layout_config.master_ratio);
-        self.layout()
-    }
-
-    pub fn increase_nmaster(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        workspace.layout_config.nmaster += 1;
-        println!("Number of masters: {}", workspace.layout_config.nmaster);
-        self.layout()
-    }
-
-    pub fn decrease_nmaster(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        if workspace.layout_config.nmaster > 1 {
-            workspace.layout_config.nmaster -= 1;
-            println!("Number of masters: {}", workspace.layout_config.nmaster);
-            self.layout()?;
-        }
-        Ok(())
-    }
-
-    pub fn increase_gap(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        workspace.layout_config.gap_size += 5;
-        println!("Gap size: {}", workspace.layout_config.gap_size);
-        self.layout()
-    }
-
-    pub fn decrease_gap(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        let gap_size = workspace.layout_config.gap_size;
-        workspace.layout_config.gap_size = (gap_size - 5).max(0);
-        println!(
-            "Gap size: {}",
-            self.monitors
-                .current()
-                .workspaces
-                .current()
-                .layout_config
-                .gap_size
-        );
-        self.layout()
-    }
-
-    /// rotate first window to the end
-    pub fn rotate_windows(&mut self) -> Result<()> {
-        let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-        let tiled_clients: Vec<Window> = workspace
-            .clients_order()
-            .into_iter()
-            .filter(|w| {
-                if let Some(state) = workspace.clients.get(w) {
-                    !state.is_fullscreen
-                } else {
-                    false
-                }
-            })
-            .collect();
-
-        if tiled_clients.len() < 2 {
-            return Ok(());
-        }
-
-        if let Some(first_client) = tiled_clients.first().copied() {
-            if let Some(pos) = workspace
-                .clients_order
-                .iter()
-                .position(|&w| w == first_client)
-            {
-                let client = workspace.clients_order.remove(pos);
-                workspace.clients_order.push(client);
-            }
-
-            if workspace.focused_client == Some(first_client) && tiled_clients.len() > 1 {
-                workspace.focused_client = Some(tiled_clients[1]);
-                self.conn
-                    .set_input_focus(InputFocus::PARENT, tiled_clients[1], CURRENT_TIME)?;
-            }
-        }
-
-        self.layout()
-    }
-
-    /// promote focused window to master section
-    pub fn promote_to_master(&mut self) -> Result<()> {
-        if let Some(focused) = self.focused_client() {
-            let workspace = self.monitors.current_mut().workspaces.current_mut();
-
-            if let Some(pos) = workspace.clients_order.iter().position(|&w| w == focused) {
-                if pos > 0 {
-                    let client = workspace.clients_order.remove(pos);
-                    workspace.clients_order.insert(0, client);
-
-                    println!("Promoted client {} to master", client);
-                    self.layout()?;
-                }
-            }
-        }
         Ok(())
     }
 }

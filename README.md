@@ -5,3 +5,5 @@
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/1e9e7bc1-9a76-47ee-9b6e-82445d69f2aa" />
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8470b974-24c1-4c16-b6eb-a95cdb76c842" />
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how dxwm works, its keybindings and the roadmap.

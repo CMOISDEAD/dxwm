@@ -1,20 +1,16 @@
 #!/usr/bin/env sh
 
-# Run an example build of penrose in an embeded Xephyr session.
+# Run the release build of dxwm inside a nested Xephyr server.
 #
-# This is intended to be run via the `run-embeded` makefile target
-# which will also handle compilation of the examples themselves.
-# You will need to have the xephyr utility installed on your system
-# for this script to run:
-#   https://wiki.archlinux.org/title/Xephyr
+# usage (from the repo root):
+#   make run-xephyr
+#   SCREEN_SIZE=1600x900 XDISPLAY=:8 APP=alacritty sh scripts/xephyr.sh
 #
-# usage:
-#   EXAMPLE=with_layout_transformers APP=st make run-embeded
-#
+# XDISPLAY must not be the display of the host session.
+# Logs go to xephyr.log in the repo root.
 CUR_DIR="$(dirname $(readlink -f $0))"
 SCREEN_SIZE=${SCREEN_SIZE:-1200x900}
-XDISPLAY=${XDISPLAY:-:1}
-EXAMPLE=${EXAMPLE:-minimal}
+XDISPLAY=${XDISPLAY:-:7}
 APP=${APP:-st}
 
 touch $CUR_DIR/../xephyr.log

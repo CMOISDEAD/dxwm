@@ -3,135 +3,88 @@ use std::collections::HashMap;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 
-pub struct KeySymConverter {
-    keysym_map: HashMap<u32, Vec<Keycode>>,
+/// Keysym -> keycode table of the current keyboard layout
+pub struct Keymap {
+    keycodes: HashMap<u32, Keycode>,
 }
 
-impl KeySymConverter {
-    pub fn new<C: Connection>(conn: &C, setup: &Setup) -> Result<Self> {
-        let mut keysym_map = HashMap::new();
+impl Keymap {
+    pub fn new<C: Connection>(conn: &C) -> Result<Self> {
+        let setup = conn.setup();
+        let count = setup.max_keycode - setup.min_keycode + 1;
 
-        let keyboard_mapping = conn
-            .get_keyboard_mapping(setup.min_keycode, setup.max_keycode - setup.min_keycode + 1)?
+        let mapping = conn
+            .get_keyboard_mapping(setup.min_keycode, count)?
             .reply()
             .context("Failed to get keyboard mapping")?;
 
-        let keysyms_per_keycode = keyboard_mapping.keysyms_per_keycode as usize;
+        let per_keycode = mapping.keysyms_per_keycode as usize;
+        let mut keycodes = HashMap::new();
 
-        for keycode in setup.min_keycode..=setup.max_keycode {
-            let index = (keycode - setup.min_keycode) as usize;
-            let offset = index * keysyms_per_keycode;
+        for (i, keysyms) in mapping.keysyms.chunks(per_keycode).enumerate() {
+            let keycode = setup.min_keycode + i as u8;
 
-            if offset + keysyms_per_keycode <= keyboard_mapping.keysyms.len() {
-                for i in 0..keysyms_per_keycode {
-                    let keysym = keyboard_mapping.keysyms[offset + i];
-                    if keysym != 0 {
-                        keysym_map
-                            .entry(keysym)
-                            .or_insert_with(Vec::new)
-                            .push(keycode);
-                    }
-                }
+            for &keysym in keysyms.iter().filter(|&&k| k != 0) {
+                // Keep the lowest keycode producing the keysym
+                keycodes.entry(keysym).or_insert(keycode);
             }
         }
 
-        Ok(Self { keysym_map })
+        Ok(Self { keycodes })
     }
 
-    /// Convert a keysym to a keycode
-    pub fn keysym_to_keycode(&self, keysym: u32) -> Option<Keycode> {
-        self.keysym_map
-            .get(&keysym)
-            .and_then(|codes| codes.first().copied())
+    pub fn keycode(&self, keysym: u32) -> Option<Keycode> {
+        self.keycodes.get(&keysym).copied()
     }
 }
 
-pub struct KeyboardGrabber<'a, C: Connection> {
-    conn: &'a C,
+/// Grab a key combination, also with NumLock and CapsLock active so they don't
+/// break the bindings (`normalize_modifiers` ignores them on key press)
+pub fn grab_key<C: Connection>(
+    conn: &C,
     root: Window,
-    converter: KeySymConverter,
+    keycode: Keycode,
+    modifiers: ModMask,
+) -> Result<()> {
+    for extra in [
+        ModMask::default(),
+        ModMask::M2,
+        ModMask::LOCK,
+        ModMask::M2 | ModMask::LOCK,
+    ] {
+        conn.grab_key(
+            false,
+            root,
+            modifiers | extra,
+            keycode,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+        )?;
+    }
+
+    Ok(())
 }
 
-impl<'a, C: Connection> KeyboardGrabber<'a, C> {
-    pub fn new(conn: &'a C, screen: &Screen, setup: &Setup) -> Result<Self> {
-        let converter = KeySymConverter::new(conn, setup)?;
-
-        Ok(Self {
-            conn,
-            root: screen.root,
-            converter,
-        })
-    }
-
-    /// Grab a specified key
-    pub fn grab_key(&self, keycode: Keycode, modifiers: ModMask) -> Result<()> {
-        self.conn
-            .grab_key(
-                false,
-                self.root,
-                modifiers,
-                keycode,
-                GrabMode::ASYNC,
-                GrabMode::ASYNC,
-            )?
-            .check()
-            .context("Failed to grab key")?;
-
-        // Grab with Numlock
-        if !modifiers.contains(ModMask::M2) {
-            self.conn
-                .grab_key(
-                    false,
-                    self.root,
-                    modifiers | ModMask::M2,
-                    keycode,
-                    GrabMode::ASYNC,
-                    GrabMode::ASYNC,
-                )?
-                .check()
-                .ok();
-        }
-
-        Ok(())
-    }
-
-    // Grab all possible keys
-    pub fn grab_all_keys(&self, setup: &Setup) -> Result<()> {
-        let min_keycode = setup.min_keycode;
-        let max_keycode = setup.max_keycode;
-
-        // Iterate over all valid keycodes
-        for keycode in min_keycode..=max_keycode {
-            // Try a grab without modifiers
-            self.conn
-                .grab_key(
-                    false,
-                    self.root,
-                    ModMask::default(),
-                    keycode,
-                    GrabMode::ASYNC,
-                    GrabMode::ASYNC,
-                )
-                .ok(); // ignore errors....
-        }
-
-        Ok(())
-    }
-
-    /// Free all grabbed keys
-    pub fn ungrab_all_keys(&self) -> Result<()> {
-        self.conn
-            .ungrab_key(0, self.root, ModMask::ANY)?
-            .check()
-            .context("Failed to ungrab all keys")
-    }
-
-    pub fn keysym_to_keycode(&self, keysym: u32) -> Option<Keycode> {
-        self.converter.keysym_to_keycode(keysym)
-    }
+/// Grab the whole keyboard, used while a submap is active so any key can exit it
+pub fn grab_keyboard<C: Connection>(conn: &C, root: Window) -> Result<()> {
+    conn.grab_key(
+        false,
+        root,
+        ModMask::ANY,
+        Grab::ANY,
+        GrabMode::ASYNC,
+        GrabMode::ASYNC,
+    )?;
+    Ok(())
 }
 
-/// Normalize all modifiers ignoring Numlock and CapsLock
+pub fn ungrab_all_keys<C: Connection>(conn: &C, root: Window) -> Result<()> {
+    conn.ungrab_key(Grab::ANY, root, ModMask::ANY)?;
+    Ok(())
+}
+
+/// Keep only the modifier bits, ignoring NumLock and CapsLock
 pub fn normalize_modifiers(modifiers: ModMask) -> ModMask {
-    modifiers // FIXME:& !(ModMask::M2 | ModMask::LOCK)
+    let ignored = u16::from(ModMask::M2 | ModMask::LOCK);
+    ModMask::from(u16::from(modifiers) & 0xff & !ignored)
 }

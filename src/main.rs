@@ -1,10 +1,10 @@
 mod alerts;
 mod atoms;
-mod banish;
 mod clients;
 mod config;
 mod keybindings;
 mod keyboard;
+mod keysyms;
 mod layout;
 mod monitors;
 mod utils;
@@ -15,10 +15,6 @@ use anyhow::Result;
 
 fn main() -> Result<()> {
     let mut wm = wm::WindowManager::new()?;
-
     wm.setup_keybindings()?;
-
-    wm.run()?;
-
-    Ok(())
+    wm.run()
 }

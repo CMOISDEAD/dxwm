@@ -1,31 +1,17 @@
 use anyhow::Result;
-use std::thread;
 use std::time::{Duration, Instant};
-use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{
-    ConnectionExt, CreateGCAux, CreateWindowAux, EventMask, Gcontext, Window, WindowClass,
-};
 use x11rb::COPY_DEPTH_FROM_PARENT;
+use x11rb::connection::Connection;
+use x11rb::protocol::xproto::*;
 
-use crate::config::config::{BACKGROUND, BORDER_FOCUSED, FOREGROUND, MARGIN};
+use crate::config::{BACKGROUND, BORDER_FOCUSED, FOREGROUND, MARGIN};
 use crate::wm::WindowManager;
 
-struct Rect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
+const ALERT_WIDTH: u16 = 200;
+const ALERT_HEIGHT: u16 = 50;
+const ALERT_TIMEOUT: Duration = Duration::from_secs(3);
 
-#[allow(dead_code)]
-enum Position {
-    TopRight,
-    TopLeft,
-    Center,
-    BottomRight,
-    BottomLeft,
-}
-
+/// Small override-redirect window in the bottom right corner of the current monitor
 pub struct Alert {
     pub window: Window,
     pub gc: Gcontext,
@@ -33,23 +19,27 @@ pub struct Alert {
     pub created_at: Instant,
 }
 
-#[allow(dead_code)]
 impl WindowManager {
-    pub fn draw_alert(&mut self, msg: String) -> Result<()> {
+    /// Show a message, replacing the previous alert
+    pub fn draw_alert(&mut self, message: String) -> Result<()> {
         self.clear_alerts()?;
 
-        let alert_id = self.conn.generate_id()?;
-        let gc_id = self.conn.generate_id()?;
-        let geom = self.position(Position::BottomRight, 200, 50);
+        let window = self.conn.generate_id()?;
+        let gc = self.conn.generate_id()?;
+
+        let monitor = self.monitors.current();
+        let margin = MARGIN as i16;
+        let x = monitor.x + monitor.width as i16 - ALERT_WIDTH as i16 - margin;
+        let y = monitor.y + monitor.height as i16 - ALERT_HEIGHT as i16 - margin;
 
         self.conn.create_window(
             COPY_DEPTH_FROM_PARENT,
-            alert_id,
+            window,
             self.root,
-            geom.x as i16,
-            geom.y as i16,
-            geom.width as u16,
-            geom.height as u16,
+            x,
+            y,
+            ALERT_WIDTH,
+            ALERT_HEIGHT,
             1,
             WindowClass::INPUT_OUTPUT,
             0,
@@ -61,80 +51,24 @@ impl WindowManager {
         )?;
 
         self.conn.create_gc(
-            gc_id,
-            alert_id,
+            gc,
+            window,
             &CreateGCAux::new()
                 .foreground(FOREGROUND)
                 .background(BACKGROUND),
         )?;
 
-        self.conn.map_window(alert_id)?;
+        self.conn.map_window(window)?;
 
-        self.conn.configure_window(
-            alert_id,
-            &x11rb::protocol::xproto::ConfigureWindowAux::new()
-                .stack_mode(x11rb::protocol::xproto::StackMode::ABOVE),
-        )?;
-
-        self.conn
-            .image_text8(alert_id, gc_id, 20, 30, msg.as_bytes())?;
-
-        self.conn.flush()?;
-
-        self.alerts.push(Alert {
-            window: alert_id,
-            gc: gc_id,
-            message: msg,
+        let alert = Alert {
+            window,
+            gc,
+            message,
             created_at: Instant::now(),
-        });
+        };
+        self.redraw_alert(&alert)?;
+        self.alerts.push(alert);
 
-        thread::spawn(move || {
-            thread::sleep(Duration::from_secs(3));
-        });
-
-        Ok(())
-    }
-
-    pub fn clear_alerts(&mut self) -> Result<()> {
-        for alert in &self.alerts {
-            self.conn.free_gc(alert.gc).ok();
-            self.conn.destroy_window(alert.window).ok();
-        }
-        self.alerts.clear();
-        self.conn.flush()?;
-        Ok(())
-    }
-
-    pub fn clear_old_alerts(&mut self) -> Result<()> {
-        let timeout = Duration::from_secs(3);
-
-        if self.keybindings.is_in_submap() {
-            return Ok(());
-        }
-
-        self.alerts.retain(|alert| {
-            if alert.created_at.elapsed() > timeout {
-                self.conn.free_gc(alert.gc).ok();
-                self.conn.destroy_window(alert.window).ok();
-                false
-            } else {
-                true
-            }
-        });
-
-        self.conn.flush()?;
-        Ok(())
-    }
-
-    pub fn restack_alerts(&mut self) -> Result<()> {
-        for alert in &self.alerts {
-            self.conn.configure_window(
-                alert.window,
-                &x11rb::protocol::xproto::ConfigureWindowAux::new()
-                    .stack_mode(x11rb::protocol::xproto::StackMode::ABOVE),
-            )?;
-        }
-        self.conn.flush()?;
         Ok(())
     }
 
@@ -145,37 +79,37 @@ impl WindowManager {
         Ok(())
     }
 
-    fn position(&self, pos: Position, win_w: u32, win_h: u32) -> Rect {
-        let monitor = self.monitors.current();
-        let margin = MARGIN;
-
-        let (relative_x, relative_y) = match pos {
-            Position::TopLeft => (margin, margin),
-            Position::TopRight => {
-                let x = monitor.width.saturating_sub(win_w as u16 + margin as u16);
-                (x as u32, margin)
-            }
-            Position::Center => {
-                let x = monitor.width.saturating_sub(win_w as u16) / 2;
-                let y = monitor.height.saturating_sub(win_h as u16) / 2;
-                (x as u32, y as u32)
-            }
-            Position::BottomLeft => {
-                let y = monitor.height.saturating_sub(win_h as u16 + margin as u16);
-                (margin, y as u32)
-            }
-            Position::BottomRight => {
-                let x = monitor.width.saturating_sub(win_w as u16 + margin as u16);
-                let y = monitor.height.saturating_sub(win_h as u16 + margin as u16);
-                (x as u32, y as u32)
-            }
-        };
-
-        Rect {
-            x: monitor.x as u32 + relative_x,
-            y: monitor.y as u32 + relative_y,
-            width: win_w,
-            height: win_h,
+    pub fn clear_alerts(&mut self) -> Result<()> {
+        for alert in self.alerts.drain(..) {
+            self.conn.free_gc(alert.gc)?;
+            self.conn.destroy_window(alert.window)?;
         }
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    /// Remove expired alerts. They stay while a submap is active, so the mode is visible
+    pub fn clear_old_alerts(&mut self) -> Result<()> {
+        if self.keybindings.is_in_submap()
+            || !self
+                .alerts
+                .iter()
+                .any(|a| a.created_at.elapsed() > ALERT_TIMEOUT)
+        {
+            return Ok(());
+        }
+
+        self.clear_alerts()
+    }
+
+    /// Keep the alerts above clients that were just raised
+    pub fn restack_alerts(&mut self) -> Result<()> {
+        for alert in &self.alerts {
+            self.conn.configure_window(
+                alert.window,
+                &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
+            )?;
+        }
+        Ok(())
     }
 }

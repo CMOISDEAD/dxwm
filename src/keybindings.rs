@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use x11rb::protocol::xproto::{Keycode, ModMask};
 
+use crate::wm::WindowManager;
+
 #[derive(Debug, Clone)]
 pub enum KeyAction {
     Spawn(String),
@@ -12,7 +14,7 @@ pub enum KeyAction {
     Quit,
     SwitchWorkspace(u8),
     MoveToWorkspace(u8),
-    Custom(fn(&mut crate::wm::WindowManager)),
+    Custom(fn(&mut WindowManager)),
 }
 
 #[derive(Clone, Debug)]
@@ -22,13 +24,15 @@ pub struct KeyBinding {
     pub action: KeyAction,
 }
 
+/// A named set of bindings without modifiers, entered from normal mode
 #[derive(Clone, Debug)]
 pub struct SubMap {
-    pub name: String,
     pub bindings: Vec<KeyBinding>,
+    /// Go back to normal mode after running one action
     pub oneshot: bool,
 }
 
+#[derive(Default)]
 pub struct KeyBindingManager {
     pub normal_bindings: Vec<KeyBinding>,
     pub submaps: HashMap<String, SubMap>,
@@ -36,15 +40,6 @@ pub struct KeyBindingManager {
 }
 
 impl KeyBindingManager {
-    pub fn new() -> Self {
-        Self {
-            normal_bindings: Vec::new(),
-            submaps: HashMap::new(),
-            current_mode: None,
-        }
-    }
-
-    /// Create a "binding" in normal mode
     pub fn bind_normal(&mut self, keycode: Keycode, modifiers: ModMask, action: KeyAction) {
         self.normal_bindings.push(KeyBinding {
             keycode,
@@ -53,96 +48,63 @@ impl KeyBindingManager {
         });
     }
 
-    /// Create "sub-binding"
-    pub fn add_submap(&mut self, name: String, oneshot: bool) {
+    pub fn add_submap(&mut self, name: &str, oneshot: bool) {
         self.submaps.insert(
-            name.clone(),
+            name.to_string(),
             SubMap {
-                name,
                 bindings: Vec::new(),
                 oneshot,
             },
         );
     }
 
-    /// Add a "binding" to a submap
-    pub fn bind_in_mode(
-        &mut self,
-        mode: &str,
-        keycode: Keycode,
-        modifiers: ModMask,
-        action: KeyAction,
-    ) {
+    pub fn bind_in_mode(&mut self, mode: &str, keycode: Keycode, action: KeyAction) {
         if let Some(submap) = self.submaps.get_mut(mode) {
             submap.bindings.push(KeyBinding {
                 keycode,
-                modifiers,
+                modifiers: ModMask::default(),
                 action,
             });
         }
     }
 
-    /// Return the current actived bindings based on current mode.
+    fn current_submap(&self) -> Option<&SubMap> {
+        self.current_mode
+            .as_ref()
+            .and_then(|mode| self.submaps.get(mode))
+    }
+
+    /// Bindings of the current mode
     pub fn active_bindings(&self) -> &[KeyBinding] {
-        if let Some(mode_name) = &self.current_mode {
-            if let Some(submap) = self.submaps.get(mode_name) {
-                return &submap.bindings;
-            }
+        match self.current_submap() {
+            Some(submap) => &submap.bindings,
+            None => &self.normal_bindings,
         }
-        &self.normal_bindings
     }
 
-    /// Find an action
     pub fn find_action(&self, keycode: Keycode, modifiers: ModMask) -> Option<KeyAction> {
-        let bindings = self.active_bindings();
-
-        for binding in bindings {
-            if binding.keycode != keycode {
-                continue;
-            }
-
-            if binding.modifiers == ModMask::default() {
-                if modifiers == ModMask::default() {
-                    return Some(binding.action.clone());
-                }
-            } else {
-                if binding.modifiers == modifiers {
-                    return Some(binding.action.clone());
-                }
-            }
-        }
-
-        None
+        self.active_bindings()
+            .iter()
+            .find(|b| b.keycode == keycode && b.modifiers == modifiers)
+            .map(|b| b.action.clone())
     }
 
-    /// Change the current mode
     pub fn enter_mode(&mut self, mode: String) {
         if self.submaps.contains_key(&mode) {
-            println!("→ Entering mode: {}", mode);
+            println!("Entering mode: {}", mode);
             self.current_mode = Some(mode);
         }
     }
 
-    /// Exit the current mode and set it to "normal"
     pub fn exit_mode(&mut self) {
-        if let Some(mode) = &self.current_mode {
-            println!("← Exiting mode: {}", mode);
-            self.current_mode = None;
+        if let Some(mode) = self.current_mode.take() {
+            println!("Exiting mode: {}", mode);
         }
     }
 
-    /// Check if the current submap should autoexit after execute an action
+    /// Whether the current submap goes back to normal mode after an action
     pub fn should_auto_exit(&self) -> bool {
-        if let Some(mode_name) = &self.current_mode {
-            if let Some(submap) = self.submaps.get(mode_name) {
-                return submap.oneshot;
-            }
-        }
-        false
-    }
-
-    pub fn is_normal_mode(&self) -> bool {
-        self.current_mode.is_none()
+        self.current_submap().is_some_and(|s| s.oneshot)
     }
 
     pub fn is_in_submap(&self) -> bool {
