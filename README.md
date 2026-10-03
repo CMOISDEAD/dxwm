@@ -1,9 +1,9 @@
-<h1 align="center">dxwm</h1>
+# dxwm
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/ce5620db-2bb8-48d7-a25e-31f9931337e6" />
+<img width="1920" height="1080" alt="2026-10-03_11-37-16" src="https://github.com/user-attachments/assets/0fc0ae6b-96e9-426e-86d3-141d47e435ed" />
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/1e9e7bc1-9a76-47ee-9b6e-82445d69f2aa" />
+<img width="1920" height="1080" alt="2026-10-03_11-41-08" src="https://github.com/user-attachments/assets/53896881-b674-40d8-9bde-ec26dc48a4fd" />
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8470b974-24c1-4c16-b6eb-a95cdb76c842" />
+https://github.com/user-attachments/assets/589fc2fa-dcc9-43fe-83ac-8fc8a7f0d603
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how dxwm works, its keybindings and the roadmap.
