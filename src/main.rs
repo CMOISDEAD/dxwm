@@ -2,6 +2,7 @@ mod alerts;
 mod atoms;
 mod clients;
 mod config;
+mod decorations;
 mod keybindings;
 mod keyboard;
 mod keysyms;

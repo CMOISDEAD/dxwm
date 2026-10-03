@@ -2,7 +2,7 @@ use anyhow::Result;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 
-use crate::config::{BORDER_WIDTH, MARGIN};
+use crate::config::{BORDER_WIDTH, MARGIN, TITLE_HEIGHT};
 use crate::wm::WindowManager;
 
 impl WindowManager {
@@ -47,24 +47,24 @@ impl WindowManager {
                     .map(|c| c.window)
             });
 
-        let clients: Vec<(Window, bool)> = workspace
+        let clients: Vec<(Window, Window, bool)> = workspace
             .clients
             .iter()
-            .map(|c| (c.window, c.fullscreen))
+            .map(|c| (c.window, c.frame, c.fullscreen))
             .collect();
 
-        for (window, fullscreen) in clients {
+        for (window, frame, fullscreen) in clients {
             if fullscreen {
-                self.configure_client(window, mon_x, mon_y, mon_width, mon_height, 0)?;
+                self.configure_client(window, mon_x, mon_y, mon_width, mon_height, false)?;
                 self.conn.configure_window(
-                    window,
+                    frame,
                     &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
                 )?;
             } else if Some(window) == shown {
-                self.configure_client(window, x, y, width, height, BORDER_WIDTH)?;
+                self.configure_client(window, x, y, width, height, true)?;
             } else {
                 // Monitors never have negative coordinates, so this is outside all of them
-                self.configure_client(window, -2 * mon_width, y, width, height, BORDER_WIDTH)?;
+                self.configure_client(window, -2 * mon_width, y, width, height, true)?;
             }
         }
 
@@ -74,7 +74,8 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Move and resize a client. `width` and `height` include the border
+    /// Move and resize a client's frame, and the client inside it. `width` and
+    /// `height` include the border. Undecorated clients (fullscreen) fill the frame
     fn configure_client(
         &mut self,
         window: Window,
@@ -82,21 +83,41 @@ impl WindowManager {
         y: i32,
         width: i32,
         height: i32,
-        border: u32,
+        decorated: bool,
     ) -> Result<()> {
+        let Some(frame) = self.client(window).map(|c| c.frame) else {
+            return Ok(());
+        };
+
+        let (border, title) = if decorated {
+            (BORDER_WIDTH, TITLE_HEIGHT)
+        } else {
+            (0, 0)
+        };
+
         let x = x.clamp(i16::MIN as i32, i16::MAX as i32);
         let y = y.clamp(i16::MIN as i32, i16::MAX as i32);
         let inner_width = (width - 2 * border as i32).clamp(1, u16::MAX as i32);
         let inner_height = (height - 2 * border as i32).clamp(1, u16::MAX as i32);
 
         self.conn.configure_window(
-            window,
+            frame,
             &ConfigureWindowAux::new()
                 .x(x)
                 .y(y)
                 .width(inner_width as u32)
                 .height(inner_height as u32)
                 .border_width(border),
+        )?;
+
+        self.conn.configure_window(
+            window,
+            &ConfigureWindowAux::new()
+                .x(0)
+                .y(title as i32)
+                .width(inner_width as u32)
+                .height((inner_height - title as i32).max(1) as u32)
+                .border_width(0),
         )?;
 
         if let Some(client) = self.client_mut(window) {

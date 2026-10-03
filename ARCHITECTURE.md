@@ -45,10 +45,28 @@ MonitorManager ── Monitor (one per RandR monitor, left to right)
 One client at a time: the focused client fills the monitor (minus `MARGIN`),
 the others stay mapped but parked off-screen (`x = -2 * monitor width`), so
 switching with `Super+J/K` is instant. Fullscreen clients cover the whole
-monitor without border.
+monitor without border nor title bar.
 
-Switching workspaces unmaps the clients instead. `pending_unmaps` remembers those
-unmaps so the resulting `UnmapNotify` is not mistaken for the client closing.
+Switching workspaces unmaps the clients' frames instead. The client stays mapped
+inside its frame, so no `UnmapNotify` reaches us that could be mistaken for the
+client closing.
+
+## Decorations
+
+Every client is reparented into a frame window (like herbstluftwm): the frame
+has the border (`BORDER_WIDTH`) and a title bar on top (`TITLE_HEIGHT`) with the
+client's `_NET_WM_NAME`/`WM_NAME` on the left, the client fills the rest. Colors
+are `BORDER_*` and `TITLE_BG_*`/`TITLE_FG_*` (focused / unfocused) in
+`config/mod.rs`; `TITLE_HEIGHT = 0` leaves only the border.
+
+- Titles use an X core font (`TITLE_FONT`, falls back to `fixed`), no Xft.
+  Titles that don't fit are cut with `...`.
+- The frame selects `SubstructureRedirect`/`SubstructureNotify`, so the client's
+  map requests and unmaps arrive with the frame as parent. Layout, stacking,
+  mapping and `EnterNotify` work on frames; focus and the workspace lists use the
+  client window.
+- Clients are added to the save-set: if dxwm dies they go back to the root.
+  A client that withdraws is reparented to the root and its frame destroyed.
 
 ## Focus
 
@@ -56,7 +74,7 @@ unmaps so the resulting `UnmapNotify` is not mistaken for the client closing.
   focuses that monitor.
 - Every layout/warp sets `enter_barrier`; `EnterNotify` events generated before it
   are ignored, so windows moving under a still pointer don't steal the focus.
-- Only the focused client of the current monitor gets `BORDER_FOCUSED`.
+- Only the focused client of the current monitor gets the focused colors.
 
 ## Keybindings
 
@@ -93,13 +111,14 @@ Alerts are small override-redirect windows (bottom right, 3 s) used as feedback.
 | `wm.rs`                  | `WindowManager`, setup, event loop and dispatch       |
 | `clients.rs`             | manage/unmanage, focus, swap, close, fullscreen       |
 | `layout.rs`              | client placement                                      |
+| `decorations.rs`         | frames, title bar drawing                             |
 | `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving     |
 | `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer |
 | `alerts.rs`              | alert windows                                         |
 | `keybindings.rs`         | binding tables and modes                              |
 | `keyboard.rs`            | keymap and key grabs                                  |
 | `keysyms.rs`             | keysym constants                                      |
-| `config/mod.rs`          | colors, sizes, apps                                   |
+| `config/mod.rs`          | colors, sizes, fonts, apps                            |
 | `config/keybinds.rs`     | the bindings and how actions run                      |
 | `atoms.rs`, `utils.rs`   | X atoms, autostart and shell helpers                  |
 

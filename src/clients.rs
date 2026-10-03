@@ -4,15 +4,16 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
-use crate::config::{BORDER_FOCUSED, BORDER_UNFOCUSED};
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
 
-/// A managed top-level window. The geometry is the last one set by the layout,
-/// border included
+/// A managed top-level window, reparented into a frame that draws its border and
+/// title bar. The geometry is the frame's last one set by the layout, border included
 #[derive(Debug, Clone)]
 pub struct Client {
     pub window: Window,
+    pub frame: Window,
+    pub title: String,
     pub x: i16,
     pub y: i16,
     pub width: u16,
@@ -21,9 +22,11 @@ pub struct Client {
 }
 
 impl Client {
-    fn new(window: Window) -> Self {
+    fn new(window: Window, frame: Window, title: String) -> Self {
         Self {
             window,
+            frame,
+            title,
             x: 0,
             y: 0,
             width: 0,
@@ -72,6 +75,15 @@ impl WindowManager {
             .find_map(|ws| ws.get(window))
     }
 
+    pub fn client_by_frame(&self, frame: Window) -> Option<&Client> {
+        self.monitors
+            .monitors
+            .iter()
+            .flat_map(|m| m.workspaces.workspaces.iter())
+            .flat_map(|ws| ws.clients.iter())
+            .find(|c| c.frame == frame)
+    }
+
     pub fn client_mut(&mut self, window: Window) -> Option<&mut Client> {
         self.monitors
             .monitors
@@ -94,10 +106,19 @@ impl WindowManager {
             .is_some_and(|m| m.workspaces.current_workspace == workspace_id)
     }
 
-    /// Unmap a client remembering that the UnmapNotify is ours, not the client withdrawing
+    /// Unmap the frame of a client. The client itself stays mapped inside, so this
+    /// doesn't generate an UnmapNotify that could be mistaken for it withdrawing
     pub fn hide_client(&mut self, window: Window) -> Result<()> {
-        *self.pending_unmaps.entry(window).or_insert(0) += 1;
-        self.conn.unmap_window(window)?;
+        if let Some(client) = self.client(window) {
+            self.conn.unmap_window(client.frame)?;
+        }
+        Ok(())
+    }
+
+    pub fn show_client(&mut self, window: Window) -> Result<()> {
+        if let Some(client) = self.client(window) {
+            self.conn.map_window(client.frame)?;
+        }
         Ok(())
     }
 
@@ -107,10 +128,12 @@ impl WindowManager {
             Some(window) => {
                 self.conn
                     .set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
-                self.conn.configure_window(
-                    window,
-                    &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
-                )?;
+                if let Some(client) = self.client(window) {
+                    self.conn.configure_window(
+                        client.frame,
+                        &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
+                    )?;
+                }
             }
             None => {
                 self.conn
@@ -143,10 +166,9 @@ impl WindowManager {
     pub fn manage_client(&mut self, e: MapRequestEvent) -> Result<()> {
         let window = e.window;
 
-        if let Some((monitor_id, workspace_id)) = self.find_client(window) {
-            if self.is_workspace_visible(monitor_id, workspace_id) {
-                self.conn.map_window(window)?;
-            }
+        // Already managed: it's inside its frame, which decides if it's visible
+        if self.find_client(window).is_some() {
+            self.conn.map_window(window)?;
             return Ok(());
         }
 
@@ -154,13 +176,15 @@ impl WindowManager {
 
         self.conn.change_window_attributes(
             window,
-            &ChangeWindowAttributesAux::new()
-                .event_mask(EventMask::ENTER_WINDOW | EventMask::FOCUS_CHANGE)
-                .border_pixel(BORDER_UNFOCUSED),
+            &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
         )?;
 
+        let title = self.read_title(window)?;
+        let frame = self.create_frame(window)?;
+        self.conn.map_window(window)?;
+
         let workspace = self.workspace_mut();
-        workspace.add_client(Client::new(window));
+        workspace.add_client(Client::new(window, frame, title));
         workspace.focused_client = Some(window);
 
         if self.wants_fullscreen(window)? {
@@ -169,7 +193,7 @@ impl WindowManager {
             self.layout()?;
         }
 
-        self.conn.map_window(window)?;
+        self.conn.map_window(frame)?;
         self.focus_current()
     }
 
@@ -191,28 +215,20 @@ impl WindowManager {
             .is_some_and(|mut atoms| atoms.any(|a| a == self.atoms.net_wm_state_fullscreen)))
     }
 
-    /// UnmapNotify / DestroyNotify: forget a client, unless the unmap was ours.
-    /// `destroyed` is false for UnmapNotify events
+    /// UnmapNotify / DestroyNotify of a client: forget it and destroy its frame.
+    /// `destroyed` is false for UnmapNotify events. Events about frames are ignored
     pub fn unmanage_client(&mut self, window: Window, destroyed: bool) -> Result<()> {
-        if destroyed {
-            self.pending_unmaps.remove(&window);
-        } else if let Some(pending) = self.pending_unmaps.get_mut(&window) {
-            // We hid it ourselves (workspace switch), the client is still managed
-            *pending -= 1;
-            if *pending == 0 {
-                self.pending_unmaps.remove(&window);
-            }
-            return Ok(());
-        }
-
         let Some((monitor_id, workspace_id)) = self.find_client(window) else {
             return Ok(());
         };
 
         println!("Unmanaging client: {}", window);
 
-        if let Some(workspace) = self.workspace_of_mut(monitor_id, workspace_id) {
-            workspace.remove_client(window);
+        if let Some(client) = self
+            .workspace_of_mut(monitor_id, workspace_id)
+            .and_then(|ws| ws.remove_client(window))
+        {
+            self.destroy_frame(&client, destroyed)?;
         }
 
         if self.is_workspace_visible(monitor_id, workspace_id) {
@@ -281,23 +297,14 @@ impl WindowManager {
         self.layout()
     }
 
-    /// Only the focused client of the current monitor gets the focused border
+    /// Only the focused client of the current monitor gets the focused decoration
     pub fn update_client_borders(&mut self) -> Result<()> {
         let focused = self.focused_client();
 
         for monitor in &self.monitors.monitors {
             for workspace in &monitor.workspaces.workspaces {
                 for client in &workspace.clients {
-                    let color = if Some(client.window) == focused {
-                        BORDER_FOCUSED
-                    } else {
-                        BORDER_UNFOCUSED
-                    };
-
-                    self.conn.change_window_attributes(
-                        client.window,
-                        &ChangeWindowAttributesAux::new().border_pixel(color),
-                    )?;
+                    self.draw_frame(client, Some(client.window) == focused)?;
                 }
             }
         }

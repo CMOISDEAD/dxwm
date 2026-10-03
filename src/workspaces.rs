@@ -1,5 +1,5 @@
 use anyhow::Result;
-use x11rb::protocol::xproto::{ConnectionExt, Window};
+use x11rb::protocol::xproto::Window;
 
 use crate::clients::Client;
 use crate::wm::WindowManager;
@@ -117,7 +117,7 @@ impl WindowManager {
         self.layout()?;
 
         for window in self.workspace().windows() {
-            self.conn.map_window(window)?;
+            self.show_client(window)?;
         }
 
         self.focus_current()?;

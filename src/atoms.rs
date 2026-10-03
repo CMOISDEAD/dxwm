@@ -7,6 +7,8 @@ pub struct Atoms {
     pub wm_delete_window: Atom,
     pub net_wm_state: Atom,
     pub net_wm_state_fullscreen: Atom,
+    pub net_wm_name: Atom,
+    pub utf8_string: Atom,
 }
 
 impl Atoms {
@@ -24,6 +26,8 @@ impl Atoms {
             wm_delete_window: intern("WM_DELETE_WINDOW")?,
             net_wm_state: intern("_NET_WM_STATE")?,
             net_wm_state_fullscreen: intern("_NET_WM_STATE_FULLSCREEN")?,
+            net_wm_name: intern("_NET_WM_NAME")?,
+            utf8_string: intern("UTF8_STRING")?,
         })
     }
 }

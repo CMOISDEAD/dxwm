@@ -305,9 +305,7 @@ impl WindowManager {
             for window in windows {
                 match (was_visible, is_visible) {
                     (true, false) => self.hide_client(window)?,
-                    (false, true) => {
-                        self.conn.map_window(window)?;
-                    }
+                    (false, true) => self.show_client(window)?,
                     _ => {}
                 }
             }

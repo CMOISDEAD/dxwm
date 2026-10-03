@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -11,6 +10,7 @@ use x11rb::rust_connection::RustConnection;
 use crate::alerts::Alert;
 use crate::atoms::Atoms;
 use crate::config::NUM_WORKSPACES;
+use crate::decorations::Decorations;
 use crate::keybindings::KeyBindingManager;
 use crate::monitors::MonitorManager;
 use crate::utils::run_autostart;
@@ -22,8 +22,7 @@ pub struct WindowManager {
     pub alerts: Vec<Alert>,
     pub monitors: MonitorManager,
     pub atoms: Atoms,
-    /// Unmaps requested by us that haven't generated their UnmapNotify yet
-    pub pending_unmaps: HashMap<Window, u32>,
+    pub decorations: Decorations,
     /// EnterNotify events older than this request were caused by our own
     /// configure/map/warp requests, not by the user moving the mouse
     pub enter_barrier: u64,
@@ -51,6 +50,7 @@ impl WindowManager {
             .context("Another window manager is already running")?;
 
         let atoms = Atoms::new(&conn)?;
+        let decorations = Decorations::new(&conn, root)?;
         // Also negotiates the RandR version, must happen before selecting its events
         let monitors = MonitorManager::detect(&conn, root, NUM_WORKSPACES)?;
 
@@ -73,7 +73,7 @@ impl WindowManager {
             alerts: Vec::new(),
             monitors,
             atoms,
-            pending_unmaps: HashMap::new(),
+            decorations,
             enter_barrier: 0,
         })
     }
@@ -101,8 +101,13 @@ impl WindowManager {
             return Ok(());
         }
 
-        if self.focused_client() != Some(e.event) {
-            self.set_focused_client(e.event)?;
+        // Clients are inside frames, those are the ones that get the event
+        let Some(window) = self.client_by_frame(e.event).map(|c| c.window) else {
+            return Ok(());
+        };
+
+        if self.focused_client() != Some(window) {
+            self.set_focused_client(window)?;
         }
 
         Ok(())
@@ -137,9 +142,10 @@ impl WindowManager {
             Event::Expose(e) if e.count == 0 => {
                 match self.alerts.iter().find(|a| a.window == e.window) {
                     Some(alert) => self.redraw_alert(alert),
-                    None => Ok(()),
+                    None => self.redraw_frame(e.window),
                 }
             }
+            Event::PropertyNotify(e) => self.handle_property_notify(e),
             Event::ClientMessage(e) if e.type_ == self.atoms.net_wm_state => {
                 self.handle_state_request(e)
             }
