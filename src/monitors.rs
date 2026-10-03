@@ -409,9 +409,19 @@ impl WindowManager {
             return Ok(());
         };
 
-        let Some(client) = self.workspace_mut().remove_client(window) else {
+        let Some(mut client) = self.workspace_mut().remove_client(window) else {
             return Ok(());
         };
+
+        // Keep a floating client at the same place relative to its monitor
+        if let Some(rect) = &mut client.floating {
+            let (source, target) = (
+                &self.monitors.monitors[source_id],
+                &self.monitors.monitors[target_id],
+            );
+            rect.x += target.x - source.x;
+            rect.y += target.y - source.y;
+        }
 
         println!(
             "Moving client {} from monitor {} to monitor {}",

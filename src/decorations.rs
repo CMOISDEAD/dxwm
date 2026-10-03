@@ -22,7 +22,11 @@ pub struct Decorations {
 impl Decorations {
     pub fn new(conn: &RustConnection, root: Window) -> Result<Self> {
         let font = conn.generate_id()?;
-        if conn.open_font(font, TITLE_FONT.as_bytes())?.check().is_err() {
+        if conn
+            .open_font(font, TITLE_FONT.as_bytes())?
+            .check()
+            .is_err()
+        {
             eprintln!("Font {} not found, using fixed", TITLE_FONT);
             conn.open_font(font, b"fixed")?.check()?;
         }

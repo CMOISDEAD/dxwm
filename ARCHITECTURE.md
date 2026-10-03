@@ -43,13 +43,40 @@ MonitorManager ── Monitor (one per RandR monitor, left to right)
 ## Layout
 
 One client at a time: the focused client fills the monitor (minus `MARGIN`),
-the others stay mapped but parked off-screen (`x = -2 * monitor width`), so
+the other tiled clients stay mapped but parked off-screen (`x = -2 * monitor width`), so
 switching with `Super+J/K` is instant. Fullscreen clients cover the whole
 monitor without border nor title bar.
 
 Switching workspaces unmaps the clients' frames instead. The client stays mapped
 inside its frame, so no `UnmapNotify` reaches us that could be mistaken for the
 client closing.
+
+## Floating clients
+
+Dialogs float instead of being tiled: windows with `WM_TRANSIENT_FOR`, a
+`_NET_WM_WINDOW_TYPE` of dialog/utility/splash/notification, or a fixed size
+(min == max in `WM_NORMAL_HINTS`). They keep the size they asked for, stay above
+tiled and fullscreen clients and can't leave their monitor.
+
+- Position: the one the client asked for if it set `USPosition`/`PPosition` in
+  `WM_NORMAL_HINTS`, otherwise centered on the current monitor.
+- Notification windows don't take the focus when they open.
+
+- A floating client is inserted right after the focused one. The tiled client
+  shown below a focused dialog is the closest one before it, and closing the
+  dialog gives the focus back to it.
+- All floating clients of a workspace are visible, whichever tiled client is shown.
+- `Super+Shift+Space` toggles floating. `Super+Button1` moves and `Super+Button3`
+  resizes the floating client under the pointer.
+- `ConfigureRequest`: unmanaged windows get what they ask for, floating clients
+  can move and resize themselves, tiled ones get a synthetic `ConfigureNotify` with their
+  real geometry.
+
+## Overlays
+
+Override-redirect windows (dunst notifications, menus, tooltips) are not managed:
+they place themselves. dxwm only remembers the mapped ones (`overlays`) to raise
+them again, together with its own alerts, every time it raises a client.
 
 ## Decorations
 
@@ -87,6 +114,8 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+J / K`           | focus next / previous client    |
 | `Super+Shift+J / K`     | swap with next / previous       |
 | `Super+F`               | toggle fullscreen               |
+| `Super+Shift+Space`     | toggle floating                 |
+| `Super+Button1 / 3`     | move / resize floating client   |
 | `Super+Shift+C`         | close client                    |
 | `Super+1..9`            | switch workspace                |
 | `Super+Shift+1..9`      | move client to workspace        |
@@ -99,9 +128,16 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+Shift+Escape`    | quit                            |
 | `Super+A` → `t e f`     | terminal, editor, file manager  |
 | `Super+S` → `l b v d`   | dmenu, battery, volume, date    |
-| Media keys, `Print`     | pamixer, maim                   |
+| Media keys              | pamixer                         |
+| `Print`                 | screenshot of the current monitor |
+| `Shift+Print`           | screenshot of a selected area   |
+| `Super+Print`           | screenshot of the focused client |
 
 Alerts are small override-redirect windows (bottom right, 3 s) used as feedback.
+
+Screenshots (maim) are saved to `SCREENSHOT_DIR` (`~/Pictures/Screenshots`) and
+copied to the clipboard (xclip). They run in the background and the main loop
+shows an alert when they finish; the WM never waits for them.
 
 ## Source map
 
@@ -112,9 +148,11 @@ Alerts are small override-redirect windows (bottom right, 3 s) used as feedback.
 | `clients.rs`             | manage/unmanage, focus, swap, close, fullscreen       |
 | `layout.rs`              | client placement                                      |
 | `decorations.rs`         | frames, title bar drawing                             |
+| `floating.rs`            | dialog detection, configure requests, mouse move/resize |
 | `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving     |
 | `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer |
 | `alerts.rs`              | alert windows                                         |
+| `screenshot.rs`          | background screenshots                                |
 | `keybindings.rs`         | binding tables and modes                              |
 | `keyboard.rs`            | keymap and key grabs                                  |
 | `keysyms.rs`             | keysym constants                                      |
@@ -124,10 +162,9 @@ Alerts are small override-redirect windows (bottom right, 3 s) used as feedback.
 
 ## Roadmap
 
-- [ ] Answer `ConfigureRequest` (send the current geometry back). Some apps wait for it.
 - [ ] Manage windows that already exist on startup, so restarting dxwm doesn't lose them.
-- [ ] Floating clients: dialogs / `WM_TRANSIENT_FOR` / `_NET_WM_WINDOW_TYPE_DIALOG`
-      are tiled today. Moving and resizing with the mouse.
+- [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
+      (min/max, increments) when resizing floating clients.
 - [ ] Respect `WM_HINTS` input and `WM_TAKE_FOCUS` (some toolkits need it to get focus).
 - [ ] Basic EWMH for bars and tools: `_NET_SUPPORTED`, `_NET_ACTIVE_WINDOW`,
       `_NET_CLIENT_LIST`, `_NET_CURRENT_DESKTOP`.

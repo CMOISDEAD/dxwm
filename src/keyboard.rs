@@ -38,20 +38,26 @@ impl Keymap {
     }
 }
 
-/// Grab a key combination, also with NumLock and CapsLock active so they don't
-/// break the bindings (`normalize_modifiers` ignores them on key press)
+/// NumLock/CapsLock combinations a grab has to be repeated with, so they don't
+/// break the bindings
+pub fn lock_masks() -> [ModMask; 4] {
+    [
+        ModMask::default(),
+        ModMask::M2,
+        ModMask::LOCK,
+        ModMask::M2 | ModMask::LOCK,
+    ]
+}
+
+/// Grab a key combination, also with NumLock and CapsLock active
+/// (`normalize_modifiers` ignores them on key press)
 pub fn grab_key<C: Connection>(
     conn: &C,
     root: Window,
     keycode: Keycode,
     modifiers: ModMask,
 ) -> Result<()> {
-    for extra in [
-        ModMask::default(),
-        ModMask::M2,
-        ModMask::LOCK,
-        ModMask::M2 | ModMask::LOCK,
-    ] {
+    for extra in lock_masks() {
         conn.grab_key(
             false,
             root,

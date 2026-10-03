@@ -7,6 +7,15 @@ use x11rb::wrapper::ConnectionExt as _;
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
 
+/// Frame geometry in root coordinates, border included
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
+}
+
 /// A managed top-level window, reparented into a frame that draws its border and
 /// title bar. The geometry is the frame's last one set by the layout, border included
 #[derive(Debug, Clone)]
@@ -19,10 +28,12 @@ pub struct Client {
     pub width: u16,
     pub height: u16,
     pub fullscreen: bool,
+    /// Floating clients keep this geometry instead of being tiled
+    pub floating: Option<Rect>,
 }
 
 impl Client {
-    fn new(window: Window, frame: Window, title: String) -> Self {
+    fn new(window: Window, frame: Window, title: String, floating: Option<Rect>) -> Self {
         Self {
             window,
             frame,
@@ -32,6 +43,7 @@ impl Client {
             width: 0,
             height: 0,
             fullscreen: false,
+            floating,
         }
     }
 }
@@ -133,6 +145,10 @@ impl WindowManager {
                         client.frame,
                         &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
                     )?;
+
+                    if client.floating.is_none() {
+                        self.raise_floating(self.monitors.current_monitor)?;
+                    }
                 }
             }
             None => {
@@ -180,12 +196,16 @@ impl WindowManager {
         )?;
 
         let title = self.read_title(window)?;
+        let floating = self.initial_float_rect(window)?;
+        let takes_focus = !self.is_notification(window)?;
         let frame = self.create_frame(window)?;
         self.conn.map_window(window)?;
 
         let workspace = self.workspace_mut();
-        workspace.add_client(Client::new(window, frame, title));
-        workspace.focused_client = Some(window);
+        workspace.add_client(Client::new(window, frame, title, floating));
+        if takes_focus {
+            workspace.focused_client = Some(window);
+        }
 
         if self.wants_fullscreen(window)? {
             self.set_fullscreen(window, true)?;

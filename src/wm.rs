@@ -11,8 +11,10 @@ use crate::alerts::Alert;
 use crate::atoms::Atoms;
 use crate::config::NUM_WORKSPACES;
 use crate::decorations::Decorations;
+use crate::floating::Drag;
 use crate::keybindings::KeyBindingManager;
 use crate::monitors::MonitorManager;
+use crate::screenshot::Screenshot;
 use crate::utils::run_autostart;
 
 pub struct WindowManager {
@@ -23,6 +25,11 @@ pub struct WindowManager {
     pub monitors: MonitorManager,
     pub atoms: Atoms,
     pub decorations: Decorations,
+    pub drag: Option<Drag>,
+    pub screenshot: Option<Screenshot>,
+    /// Mapped override-redirect windows of other programs (notifications, menus,
+    /// tooltips). We don't manage them, only keep them above the clients
+    pub overlays: Vec<Window>,
     /// EnterNotify events older than this request were caused by our own
     /// configure/map/warp requests, not by the user moving the mouse
     pub enter_barrier: u64,
@@ -74,6 +81,9 @@ impl WindowManager {
             monitors,
             atoms,
             decorations,
+            drag: None,
+            screenshot: None,
+            overlays: Vec::new(),
             enter_barrier: 0,
         })
     }
@@ -114,6 +124,7 @@ impl WindowManager {
     }
 
     /// Main loop. Events are polled instead of waited for so alerts can expire
+    /// and background screenshots can be followed
     pub fn run(&mut self) -> Result<()> {
         run_autostart();
 
@@ -125,6 +136,7 @@ impl WindowManager {
             }
 
             self.clear_old_alerts()?;
+            self.poll_screenshot()?;
 
             std::thread::sleep(Duration::from_millis(32));
         }
@@ -134,11 +146,32 @@ impl WindowManager {
         match event {
             Event::KeyPress(e) => self.handle_key_press(&e),
             Event::MapRequest(e) => self.manage_client(e),
-            Event::UnmapNotify(e) => self.unmanage_client(e.window, false),
-            Event::DestroyNotify(e) => self.unmanage_client(e.window, true),
+            Event::MapNotify(e) => {
+                let ours = self.alerts.iter().any(|a| a.window == e.window);
+                if e.override_redirect && !ours && !self.overlays.contains(&e.window) {
+                    self.overlays.push(e.window);
+                }
+                Ok(())
+            }
+            Event::UnmapNotify(e) => {
+                self.overlays.retain(|&w| w != e.window);
+                self.unmanage_client(e.window, false)
+            }
+            Event::DestroyNotify(e) => {
+                self.overlays.retain(|&w| w != e.window);
+                self.unmanage_client(e.window, true)
+            }
             Event::EnterNotify(e) => self.handle_enter_notify(e),
-            // Only reaches us while the pointer is over the root (empty monitor area)
-            Event::MotionNotify(e) => self.focus_monitor_at(e.root_x, e.root_y),
+            Event::ConfigureRequest(e) => self.handle_configure_request(e),
+            Event::ButtonPress(e) => self.handle_button_press(e),
+            Event::ButtonRelease(_) => self.handle_button_release(),
+            Event::MotionNotify(e) => {
+                if self.handle_drag_motion(&e)? {
+                    return Ok(());
+                }
+                // Only reaches us while the pointer is over the root (empty monitor area)
+                self.focus_monitor_at(e.root_x, e.root_y)
+            }
             Event::Expose(e) if e.count == 0 => {
                 match self.alerts.iter().find(|a| a.window == e.window) {
                     Some(alert) => self.redraw_alert(alert),

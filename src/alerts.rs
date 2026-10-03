@@ -102,11 +102,14 @@ impl WindowManager {
         self.clear_alerts()
     }
 
-    /// Keep the alerts above clients that were just raised
+    /// Keep the overlays (notifications, menus...) and the alerts above clients
+    /// that were just raised
     pub fn restack_alerts(&mut self) -> Result<()> {
-        for alert in &self.alerts {
+        let alerts = self.alerts.iter().map(|a| a.window);
+
+        for window in self.overlays.iter().copied().chain(alerts) {
             self.conn.configure_window(
-                alert.window,
+                window,
                 &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
             )?;
         }

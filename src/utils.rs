@@ -26,7 +26,9 @@ pub fn run_autostart() {
     }
 }
 
-/// Run a shell command and wait for its trimmed stdout (empty on failure)
+/// Run a shell command and wait for its trimmed stdout (empty on failure).
+/// Only for quick commands: it blocks the WM, forever if the command leaves a
+/// background process holding its stdout (like xclip)
 pub fn command_output(cmd: &str) -> String {
     Command::new("sh")
         .arg("-c")

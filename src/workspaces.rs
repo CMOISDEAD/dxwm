@@ -38,23 +38,36 @@ impl Workspace {
         self.clients.iter().map(|c| c.window).collect()
     }
 
+    /// Add a client at the end. Floating ones go right after the focused client
+    /// instead, so a dialog stays next to the client that opened it
     pub fn add_client(&mut self, client: Client) {
+        let idx = match self.focused_client.and_then(|w| self.position(w)) {
+            Some(focused) if client.floating.is_some() => focused + 1,
+            _ => self.clients.len(),
+        };
+
         if self.focused_client.is_none() {
             self.focused_client = Some(client.window);
         }
-        self.clients.push(client);
+        self.clients.insert(idx, client);
     }
 
     /// Remove a client. If it was focused, the focus moves to its right neighbour
-    /// (or the left one if it was the last)
+    /// (or the left one if it was the last). Closing a floating client goes back
+    /// to the left one, the client that opened it
     pub fn remove_client(&mut self, window: Window) -> Option<Client> {
         let idx = self.position(window)?;
         let client = self.clients.remove(idx);
 
         if self.focused_client == Some(window) {
+            let next = match client.floating {
+                Some(_) => idx.saturating_sub(1),
+                None => idx,
+            };
+
             self.focused_client = self
                 .clients
-                .get(idx)
+                .get(next)
                 .or_else(|| self.clients.last())
                 .map(|c| c.window);
         }

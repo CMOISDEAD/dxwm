@@ -9,6 +9,7 @@ use super::{EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP, launch_dmenu};
 use crate::keybindings::KeyAction;
 use crate::keyboard::{self, Keymap, normalize_modifiers};
 use crate::keysyms::*;
+use crate::screenshot::Shot;
 use crate::utils::{command_output, mic_status, volume_status};
 use crate::wm::WindowManager;
 
@@ -112,6 +113,15 @@ impl WindowManager {
                 }
             }),
         );
+        bind(
+            XK_SPACE,
+            super_shift,
+            KeyAction::Custom(|wm| {
+                if let Some(window) = wm.focused_client() {
+                    wm.toggle_floating(window).ok();
+                }
+            }),
+        );
         bind(XK_C, super_shift, KeyAction::CloseWindow);
 
         // Misc
@@ -168,21 +178,26 @@ impl WindowManager {
             }),
         );
 
-        // Screenshots to the clipboard. Waits so the alert isn't captured
+        // Screenshots, saved to SCREENSHOT_DIR and copied to the clipboard
         bind(
             XK_PRINT,
             none,
             KeyAction::Custom(|wm| {
-                command_output("maim | xclip -selection clipboard -t image/png -i");
-                wm.draw_alert("[SCR] FULL".to_string()).ok();
+                wm.screenshot(Shot::Monitor).ok();
             }),
         );
         bind(
             XK_PRINT,
             ModMask::SHIFT,
             KeyAction::Custom(|wm| {
-                command_output("maim -s | xclip -selection clipboard -t image/png -i");
-                wm.draw_alert("[SCR] AREA".to_string()).ok();
+                wm.screenshot(Shot::Area).ok();
+            }),
+        );
+        bind(
+            XK_PRINT,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.screenshot(Shot::Window).ok();
             }),
         );
 
@@ -237,6 +252,7 @@ impl WindowManager {
             }
         }
 
+        self.grab_buttons()?;
         self.update_grabs()
     }
 

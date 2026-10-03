@@ -27,6 +27,9 @@ pub const TITLE_PADDING: i16 = 6;
 /// An iso10646 font is needed to show non latin-1 characters
 pub const TITLE_FONT: &str = "-misc-fixed-medium-r-normal--13-*-*-*-*-*-iso10646-1";
 
+/// Where screenshots are saved, expanded by the shell
+pub const SCREENSHOT_DIR: &str = "$HOME/Pictures/Screenshots";
+
 pub const TERMINAL_APP: &str = "alacritty";
 pub const FILEMANAGER_APP: &str = "pcmanfm";
 pub const EDITOR_APP: &str = "emacsclient -c";
