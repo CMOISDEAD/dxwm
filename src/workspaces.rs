@@ -11,6 +11,8 @@ pub struct Workspace {
     /// Clients in layout order
     pub clients: Vec<Client>,
     pub focused_client: Option<Window>,
+    /// How far the strip of tiled clients is scrolled to the left, in pixels
+    pub scroll: i32,
 }
 
 impl Workspace {
@@ -19,6 +21,7 @@ impl Workspace {
             id,
             clients: Vec::new(),
             focused_client: None,
+            scroll: 0,
         }
     }
 
@@ -38,12 +41,12 @@ impl Workspace {
         self.clients.iter().map(|c| c.window).collect()
     }
 
-    /// Add a client at the end. Floating ones go right after the focused client
-    /// instead, so a dialog stays next to the client that opened it
+    /// Add a client right after the focused one: new columns open next to the
+    /// one in use and a dialog stays next to the client that opened it
     pub fn add_client(&mut self, client: Client) {
         let idx = match self.focused_client.and_then(|w| self.position(w)) {
-            Some(focused) if client.floating.is_some() => focused + 1,
-            _ => self.clients.len(),
+            Some(focused) => focused + 1,
+            None => self.clients.len(),
         };
 
         if self.focused_client.is_none() {

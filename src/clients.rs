@@ -4,6 +4,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
+use crate::config::DEFAULT_COLUMN_WIDTH;
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
 
@@ -30,6 +31,8 @@ pub struct Client {
     pub fullscreen: bool,
     /// Floating clients keep this geometry instead of being tiled
     pub floating: Option<Rect>,
+    /// Width while tiled, as a fraction of the monitor
+    pub column_width: f32,
 }
 
 impl Client {
@@ -44,6 +47,7 @@ impl Client {
             height: 0,
             fullscreen: false,
             floating,
+            column_width: DEFAULT_COLUMN_WIDTH,
         }
     }
 }
@@ -298,22 +302,23 @@ impl WindowManager {
         self.swap_step(-1)
     }
 
-    /// Swap the focused client with a neighbour, wrapping around
+    /// Swap the focused client with a neighbour, stopping at both ends
     fn swap_step(&mut self, step: isize) -> Result<()> {
         let workspace = self.workspace_mut();
-        let len = workspace.clients.len();
 
         let Some(current) = workspace.focused_client.and_then(|w| workspace.position(w)) else {
             return Ok(());
         };
 
-        if len < 2 {
+        let target = current
+            .saturating_add_signed(step)
+            .min(workspace.clients.len() - 1);
+
+        if target == current {
             return Ok(());
         }
 
-        let target = (current as isize + step).rem_euclid(len as isize) as usize;
         workspace.clients.swap(current, target);
-
         self.layout()
     }
 

@@ -21,9 +21,15 @@ pub struct Drag {
 }
 
 impl WindowManager {
-    /// Super+Button1 moves and Super+Button3 resizes the floating client under the pointer
+    /// Super+Button1 moves and Super+Button3 resizes the floating client under the
+    /// pointer, Super+wheel moves the focus along the columns
     pub fn grab_buttons(&self) -> Result<()> {
-        for button in [ButtonIndex::M1, ButtonIndex::M3] {
+        for button in [
+            ButtonIndex::M1,
+            ButtonIndex::M3,
+            ButtonIndex::M4,
+            ButtonIndex::M5,
+        ] {
             for extra in lock_masks() {
                 self.conn.grab_button(
                     false,
@@ -224,8 +230,16 @@ impl WindowManager {
         Ok(())
     }
 
-    /// ButtonPress with Super: start moving/resizing the floating client under the pointer
+    /// ButtonPress with Super: scroll the columns with the wheel, or start
+    /// moving/resizing the floating client under the pointer
     pub fn handle_button_press(&mut self, e: ButtonPressEvent) -> Result<()> {
+        if e.detail == u8::from(ButtonIndex::M4) {
+            return self.focus_prev();
+        }
+        if e.detail == u8::from(ButtonIndex::M5) {
+            return self.focus_next();
+        }
+
         let Some(client) = self.client_by_frame(e.child) else {
             return Ok(());
         };

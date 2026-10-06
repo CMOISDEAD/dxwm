@@ -8,6 +8,14 @@ pub const BORDER_WIDTH: u32 = 3;
 /// Space between the clients and the monitor edges, also used to place the alerts
 pub const MARGIN: u32 = 10;
 
+/// Width of a new tiled client as a fraction of the monitor, 0.5 fits two side by side
+pub const DEFAULT_COLUMN_WIDTH: f32 = 0.5;
+/// Widths cycled with Super+R
+pub const COLUMN_WIDTH_PRESETS: [f32; 3] = [1.0 / 3.0, 0.5, 2.0 / 3.0];
+/// Change applied by Super+H / Super+L
+pub const COLUMN_WIDTH_STEP: f32 = 0.1;
+pub const MIN_COLUMN_WIDTH: f32 = 0.2;
+
 pub const BACKGROUND: u32 = 0xD7D5D1;
 pub const FOREGROUND: u32 = 0x222222;
 pub const BORDER_FOCUSED: u32 = 0xB8B6B2;

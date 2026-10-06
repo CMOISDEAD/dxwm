@@ -5,7 +5,7 @@ use anyhow::Result;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{KeyPressEvent, ModMask};
 
-use super::{EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP, launch_dmenu};
+use super::{COLUMN_WIDTH_STEP, EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP, launch_dmenu};
 use crate::keybindings::KeyAction;
 use crate::keyboard::{self, Keymap, normalize_modifiers};
 use crate::keysyms::*;
@@ -123,6 +123,36 @@ impl WindowManager {
             }),
         );
         bind(XK_C, super_shift, KeyAction::CloseWindow);
+
+        // Column width
+        bind(
+            XK_H,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.resize_column(-COLUMN_WIDTH_STEP).ok();
+            }),
+        );
+        bind(
+            XK_L,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.resize_column(COLUMN_WIDTH_STEP).ok();
+            }),
+        );
+        bind(
+            XK_R,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.cycle_column_width().ok();
+            }),
+        );
+        bind(
+            XK_M,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.toggle_maximize_column().ok();
+            }),
+        );
 
         // Misc
         bind(XK_RETURN, SUPER, KeyAction::Spawn(TERMINAL_APP.to_string()));

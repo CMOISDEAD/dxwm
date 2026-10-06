@@ -42,10 +42,22 @@ MonitorManager ── Monitor (one per RandR monitor, left to right)
 
 ## Layout
 
-One client at a time: the focused client fills the monitor (minus `MARGIN`),
-the other tiled clients stay mapped but parked off-screen (`x = -2 * monitor width`), so
-switching with `Super+J/K` is instant. Fullscreen clients cover the whole
-monitor without border nor title bar.
+Scrolling columns, like niri/PaperWM: the tiled clients of a workspace are
+columns of a horizontal strip, in `Vec<Client>` order, each as tall as the
+monitor (minus `MARGIN`).
+
+- Every client has its own width as a fraction of the monitor (`column_width`).
+  New ones use `DEFAULT_COLUMN_WIDTH` (0.5: two fit exactly side by side).
+- `Workspace::scroll` is how far the strip is scrolled. Each layout moves it just
+  enough to show the focused column completely, and never past the ends.
+- A new client opens right after the focused one.
+- Columns out of view stay mapped but parked off-screen (`x = -2 * monitor
+  width`), so scrolling is instant. A column cut by the monitor edge is clipped
+  with the Shape extension, so it never shows on the next monitor.
+- Hovering a partially visible column focuses it without scrolling; the keyboard
+  and `Super+wheel` scroll.
+
+Fullscreen clients cover the whole monitor without border nor title bar.
 
 Switching workspaces unmaps the clients' frames instead. The client stays mapped
 inside its frame, so no `UnmapNotify` reaches us that could be mistaken for the
@@ -62,10 +74,10 @@ tiled and fullscreen clients and can't leave their monitor.
   `WM_NORMAL_HINTS`, otherwise centered on the current monitor.
 - Notification windows don't take the focus when they open.
 
-- A floating client is inserted right after the focused one. The tiled client
-  shown below a focused dialog is the closest one before it, and closing the
-  dialog gives the focus back to it.
-- All floating clients of a workspace are visible, whichever tiled client is shown.
+- A floating client is inserted right after the focused one. The column kept
+  in view while a dialog is focused is the closest tiled client before it, and
+  closing the dialog gives the focus back to it.
+- All floating clients of a workspace are visible, wherever the strip is scrolled.
 - `Super+Shift+Space` toggles floating. `Super+Button1` moves and `Super+Button3`
   resizes the floating client under the pointer.
 - `ConfigureRequest`: unmanaged windows get what they ask for, floating clients
@@ -112,7 +124,11 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 |-------------------------|---------------------------------|
 | `Super+Return`          | terminal                        |
 | `Super+J / K`           | focus next / previous client    |
-| `Super+Shift+J / K`     | swap with next / previous       |
+| `Super+Shift+J / K`     | move column right / left        |
+| `Super+H / L`           | narrower / wider column (10%)   |
+| `Super+R`               | next preset width (1/3, 1/2, 2/3) |
+| `Super+M`               | maximize column / default width |
+| `Super+wheel`           | focus previous / next client    |
 | `Super+F`               | toggle fullscreen               |
 | `Super+Shift+Space`     | toggle floating                 |
 | `Super+Button1 / 3`     | move / resize floating client   |
@@ -141,27 +157,29 @@ shows an alert when they finish; the WM never waits for them.
 
 ## Source map
 
-| File                     | Contents                                              |
-|--------------------------|-------------------------------------------------------|
-| `main.rs`                | entry point                                           |
-| `wm.rs`                  | `WindowManager`, setup, event loop and dispatch       |
-| `clients.rs`             | manage/unmanage, focus, swap, close, fullscreen       |
-| `layout.rs`              | client placement                                      |
-| `decorations.rs`         | frames, title bar drawing                             |
+| File                     | Contents                                                |
+|--------------------------|---------------------------------------------------------|
+| `main.rs`                | entry point                                             |
+| `wm.rs`                  | `WindowManager`, setup, event loop and dispatch         |
+| `clients.rs`             | manage/unmanage, focus, swap, close, fullscreen         |
+| `layout.rs`              | scrolling columns, column widths                        |
+| `decorations.rs`         | frames, title bar drawing                               |
 | `floating.rs`            | dialog detection, configure requests, mouse move/resize |
-| `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving     |
-| `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer |
-| `alerts.rs`              | alert windows                                         |
-| `screenshot.rs`          | background screenshots                                |
-| `keybindings.rs`         | binding tables and modes                              |
-| `keyboard.rs`            | keymap and key grabs                                  |
-| `keysyms.rs`             | keysym constants                                      |
-| `config/mod.rs`          | colors, sizes, fonts, apps                            |
-| `config/keybinds.rs`     | the bindings and how actions run                      |
-| `atoms.rs`, `utils.rs`   | X atoms, autostart and shell helpers                  |
+| `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving       |
+| `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer   |
+| `alerts.rs`              | alert windows                                           |
+| `screenshot.rs`          | background screenshots                                  |
+| `keybindings.rs`         | binding tables and modes                                |
+| `keyboard.rs`            | keymap and key grabs                                    |
+| `keysyms.rs`             | keysym constants                                        |
+| `config/mod.rs`          | colors, sizes, fonts, apps                              |
+| `config/keybinds.rs`     | the bindings and how actions run                        |
+| `atoms.rs`, `utils.rs`   | X atoms, autostart and shell helpers                    |
 
 ## Roadmap
 
+- [ ] Columns: center the focused column, stack several clients in one column
+      (niri's consume/expel) and resize columns with the mouse.
 - [ ] Manage windows that already exist on startup, so restarting dxwm doesn't lose them.
 - [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
       (min/max, increments) when resizing floating clients.
