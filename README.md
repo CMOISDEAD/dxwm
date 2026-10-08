@@ -6,4 +6,6 @@
 
 https://github.com/user-attachments/assets/589fc2fa-dcc9-43fe-83ac-8fc8a7f0d603
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/09ae8a0a-6a30-4eee-a017-25db764201fb" />
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how dxwm works, its keybindings and the roadmap.
