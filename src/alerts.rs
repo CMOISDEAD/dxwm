@@ -11,7 +11,6 @@ const ALERT_WIDTH: u16 = 200;
 const ALERT_HEIGHT: u16 = 50;
 const ALERT_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Small override-redirect window in the bottom right corner of the current monitor
 pub struct Alert {
     pub window: Window,
     pub gc: Gcontext,
@@ -20,7 +19,6 @@ pub struct Alert {
 }
 
 impl WindowManager {
-    /// Show a message, replacing the previous alert
     pub fn draw_alert(&mut self, message: String) -> Result<()> {
         self.clear_alerts()?;
 
@@ -88,7 +86,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Remove expired alerts. They stay while a submap is active, so the mode is visible
     pub fn clear_old_alerts(&mut self) -> Result<()> {
         if self.keybindings.is_in_submap()
             || !self
@@ -102,12 +99,11 @@ impl WindowManager {
         self.clear_alerts()
     }
 
-    /// Keep the overlays (notifications, menus...) and the alerts above clients
-    /// that were just raised
     pub fn restack_alerts(&mut self) -> Result<()> {
         let alerts = self.alerts.iter().map(|a| a.window);
+        let prompt = self.prompt.as_ref().map(|p| p.window);
 
-        for window in self.overlays.iter().copied().chain(alerts) {
+        for window in self.overlays.iter().copied().chain(alerts).chain(prompt) {
             self.conn.configure_window(
                 window,
                 &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),

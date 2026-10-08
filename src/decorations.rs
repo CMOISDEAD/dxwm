@@ -11,7 +11,6 @@ use crate::config::{
 };
 use crate::wm::WindowManager;
 
-/// Font and GC shared by every title bar
 pub struct Decorations {
     gc: Gcontext,
     ascent: i16,
@@ -45,10 +44,56 @@ impl Decorations {
             char_width: info.max_bounds.character_width.max(1),
         })
     }
+
+    pub fn font_height(&self) -> i16 {
+        self.ascent + self.descent
+    }
+
+    pub fn char_width(&self) -> i16 {
+        self.char_width
+    }
+
+    /// Draw text at `x`, vertically centered in a row of `height` pixels that
+    /// starts at `y`. `colors` are the foreground and the background
+    pub fn draw_text(
+        &self,
+        conn: &RustConnection,
+        window: Window,
+        (x, y): (i16, i16),
+        height: i16,
+        (foreground, background): (u32, u32),
+        text: &[Char2b],
+    ) -> Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        conn.change_gc(
+            self.gc,
+            &ChangeGCAux::new()
+                .foreground(foreground)
+                .background(background),
+        )?;
+
+        let baseline = y + (height - self.font_height()) / 2 + self.ascent;
+        conn.image_text16(window, self.gc, x, baseline, text)?;
+        Ok(())
+    }
+
+    pub fn fill(
+        &self,
+        conn: &RustConnection,
+        window: Window,
+        rectangle: Rectangle,
+        color: u32,
+    ) -> Result<()> {
+        conn.change_gc(self.gc, &ChangeGCAux::new().foreground(color))?;
+        conn.poly_fill_rectangle(window, self.gc, &[rectangle])?;
+        Ok(())
+    }
 }
 
 impl WindowManager {
-    /// Create the (unmapped) frame that holds a client: border + title bar on top
     pub fn create_frame(&mut self, window: Window) -> Result<Window> {
         let frame = self.conn.generate_id()?;
 
@@ -83,7 +128,6 @@ impl WindowManager {
         Ok(frame)
     }
 
-    /// Give the client back to the root (when it withdraws) and destroy its frame
     pub fn destroy_frame(&mut self, client: &Client, destroyed: bool) -> Result<()> {
         if !destroyed {
             // The client may be already gone (destroying a window unmaps it first)
@@ -99,7 +143,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Paint the border and the title bar of a client
     pub fn draw_frame(&self, client: &Client, focused: bool) -> Result<()> {
         let (border, background, foreground) = if focused {
             (BORDER_FOCUSED, TITLE_BG_FOCUSED, TITLE_FG_FOCUSED)
@@ -124,26 +167,16 @@ impl WindowManager {
         let decorations = &self.decorations;
         let inner_width = client.width as i16 - 2 * BORDER_WIDTH as i16;
         let max_chars = ((inner_width - 2 * TITLE_PADDING) / decorations.char_width).max(0);
-        let text = encode_title(&client.title, max_chars as usize);
+        let text = encode_text(&client.title, max_chars as usize);
 
-        if text.is_empty() {
-            return Ok(());
-        }
-
-        self.conn.change_gc(
-            decorations.gc,
-            &ChangeGCAux::new()
-                .foreground(foreground)
-                .background(background),
-        )?;
-
-        // Vertically centered baseline
-        let font_height = decorations.ascent + decorations.descent;
-        let y = (TITLE_HEIGHT as i16 - font_height) / 2 + decorations.ascent;
-
-        self.conn
-            .image_text16(client.frame, decorations.gc, TITLE_PADDING, y, &text)?;
-        Ok(())
+        decorations.draw_text(
+            &self.conn,
+            client.frame,
+            (TITLE_PADDING, 0),
+            TITLE_HEIGHT as i16,
+            (foreground, background),
+            &text,
+        )
     }
 
     /// _NET_WM_NAME, or WM_NAME for clients that don't set it
@@ -165,7 +198,6 @@ impl WindowManager {
         Ok(String::new())
     }
 
-    /// PropertyNotify: keep the title bar in sync with the client's name
     pub fn handle_property_notify(&mut self, e: PropertyNotifyEvent) -> Result<()> {
         if e.atom != self.atoms.net_wm_name && e.atom != u32::from(AtomEnum::WM_NAME) {
             return Ok(());
@@ -188,7 +220,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Expose on a frame: redraw its title bar
     pub fn redraw_frame(&self, frame: Window) -> Result<()> {
         let Some(client) = self.client_by_frame(frame) else {
             return Ok(());
@@ -200,8 +231,7 @@ impl WindowManager {
     }
 }
 
-/// Title as 16 bit characters for the core font, cut to `max_chars` with "..."
-fn encode_title(title: &str, max_chars: usize) -> Vec<Char2b> {
+pub fn encode_text(title: &str, max_chars: usize) -> Vec<Char2b> {
     // ImageText16 can draw at most 255 characters
     let max_chars = max_chars.min(255);
     let mut chars: Vec<char> = title.chars().collect();

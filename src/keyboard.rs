@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 
-/// Keysym -> keycode table of the current keyboard layout
 pub struct Keymap {
     keycodes: HashMap<u32, Keycode>,
+    /// Keysyms of every keycode, `per_keycode` each, starting at `min_keycode`
+    keysyms: Vec<u32>,
+    per_keycode: usize,
+    min_keycode: Keycode,
 }
 
 impl Keymap {
@@ -30,11 +33,50 @@ impl Keymap {
             }
         }
 
-        Ok(Self { keycodes })
+        Ok(Self {
+            keycodes,
+            keysyms: mapping.keysyms,
+            per_keycode,
+            min_keycode: setup.min_keycode,
+        })
     }
 
     pub fn keycode(&self, keysym: u32) -> Option<Keycode> {
         self.keycodes.get(&keysym).copied()
+    }
+
+    /// Keysym produced by a key with the modifiers of a key event (0 if none):
+    /// Shift picks the second level and AltGr the third and fourth
+    pub fn keysym(&self, keycode: Keycode, state: u16) -> u32 {
+        let row = keycode
+            .checked_sub(self.min_keycode)
+            .and_then(|i| self.keysyms.chunks(self.per_keycode).nth(i as usize))
+            .unwrap_or_default();
+        let level = |column: usize| row.get(column).copied().filter(|&k| k != 0);
+
+        let shift = usize::from(state & u16::from(ModMask::SHIFT) != 0);
+        // With XKB the levels reached with AltGr are the columns 4 and 5
+        let base = if state & u16::from(ModMask::M5) != 0 {
+            4
+        } else {
+            0
+        };
+
+        level(base + shift)
+            .or_else(|| level(base))
+            .or_else(|| level(shift))
+            .or_else(|| level(0))
+            .unwrap_or(0)
+    }
+}
+
+pub fn keysym_to_char(keysym: u32) -> Option<char> {
+    match keysym {
+        // Latin-1 keysyms have the value of their character
+        0x20..=0x7e | 0xa0..=0xff => char::from_u32(keysym),
+        // Any other character is its Unicode code point + 0x01000000
+        0x0100_0100..=0x0110_ffff => char::from_u32(keysym - 0x0100_0000),
+        _ => None,
     }
 }
 
@@ -49,8 +91,6 @@ pub fn lock_masks() -> [ModMask; 4] {
     ]
 }
 
-/// Grab a key combination, also with NumLock and CapsLock active
-/// (`normalize_modifiers` ignores them on key press)
 pub fn grab_key<C: Connection>(
     conn: &C,
     root: Window,
@@ -71,7 +111,6 @@ pub fn grab_key<C: Connection>(
     Ok(())
 }
 
-/// Grab the whole keyboard, used while a submap is active so any key can exit it
 pub fn grab_keyboard<C: Connection>(conn: &C, root: Window) -> Result<()> {
     conn.grab_key(
         false,
@@ -89,7 +128,6 @@ pub fn ungrab_all_keys<C: Connection>(conn: &C, root: Window) -> Result<()> {
     Ok(())
 }
 
-/// Keep only the modifier bits, ignoring NumLock and CapsLock
 pub fn normalize_modifiers(modifiers: ModMask) -> ModMask {
     let ignored = u16::from(ModMask::M2 | ModMask::LOCK);
     ModMask::from(u16::from(modifiers) & 0xff & !ignored)

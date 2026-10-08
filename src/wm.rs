@@ -13,7 +13,9 @@ use crate::config::NUM_WORKSPACES;
 use crate::decorations::Decorations;
 use crate::floating::Drag;
 use crate::keybindings::KeyBindingManager;
+use crate::keyboard::Keymap;
 use crate::monitors::MonitorManager;
+use crate::prompt::Prompt;
 use crate::screenshot::Screenshot;
 use crate::utils::run_autostart;
 
@@ -21,22 +23,19 @@ pub struct WindowManager {
     pub conn: RustConnection,
     pub root: Window,
     pub keybindings: KeyBindingManager,
+    pub keymap: Keymap,
     pub alerts: Vec<Alert>,
+    pub prompt: Option<Prompt>,
     pub monitors: MonitorManager,
     pub atoms: Atoms,
     pub decorations: Decorations,
     pub drag: Option<Drag>,
     pub screenshot: Option<Screenshot>,
-    /// Mapped override-redirect windows of other programs (notifications, menus,
-    /// tooltips). We don't manage them, only keep them above the clients
     pub overlays: Vec<Window>,
-    /// EnterNotify events older than this request were caused by our own
-    /// configure/map/warp requests, not by the user moving the mouse
     pub enter_barrier: u64,
 }
 
 impl WindowManager {
-    /// Connect to the X server and become its window manager
     pub fn new() -> Result<Self> {
         let (conn, screen_num) =
             RustConnection::connect(None).context("Failed to connect to X server")?;
@@ -51,14 +50,13 @@ impl WindowManager {
                 | EventMask::STRUCTURE_NOTIFY,
         );
 
-        // Only one client can select SubstructureRedirect on the root
         conn.change_window_attributes(root, &change)?
             .check()
             .context("Another window manager is already running")?;
 
         let atoms = Atoms::new(&conn)?;
+        let keymap = Keymap::new(&conn)?;
         let decorations = Decorations::new(&conn, root)?;
-        // Also negotiates the RandR version, must happen before selecting its events
         let monitors = MonitorManager::detect(&conn, root, NUM_WORKSPACES)?;
 
         if conn
@@ -77,7 +75,9 @@ impl WindowManager {
             conn,
             root,
             keybindings: KeyBindingManager::default(),
+            keymap,
             alerts: Vec::new(),
+            prompt: None,
             monitors,
             atoms,
             decorations,
@@ -88,16 +88,12 @@ impl WindowManager {
         })
     }
 
-    /// Mark every EnterNotify generated up to now as stale, so windows moving under
-    /// a still pointer don't steal the focus
     pub fn ignore_pending_enters(&mut self) -> Result<()> {
         self.enter_barrier = self.conn.no_operation()?.sequence_number();
         Ok(())
     }
 
-    /// Focus follows the mouse, across clients and empty monitors
     fn handle_enter_notify(&mut self, e: EnterNotifyEvent) -> Result<()> {
-        // Events carry the 16 lower bits of the last request processed by the server
         let stale = (e.sequence.wrapping_sub(self.enter_barrier as u16) as i16) < 0;
         if stale {
             return Ok(());
@@ -111,7 +107,6 @@ impl WindowManager {
             return Ok(());
         }
 
-        // Clients are inside frames, those are the ones that get the event
         let Some(window) = self.client_by_frame(e.event).map(|c| c.window) else {
             return Ok(());
         };
@@ -123,8 +118,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Main loop. Events are polled instead of waited for so alerts can expire
-    /// and background screenshots can be followed
     pub fn run(&mut self) -> Result<()> {
         run_autostart();
 
@@ -137,6 +130,7 @@ impl WindowManager {
 
             self.clear_old_alerts()?;
             self.poll_screenshot()?;
+            self.poll_prompt()?;
 
             std::thread::sleep(Duration::from_millis(32));
         }
@@ -144,10 +138,12 @@ impl WindowManager {
 
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
+            Event::KeyPress(e) if self.prompt.is_some() => self.handle_prompt_key(&e),
             Event::KeyPress(e) => self.handle_key_press(&e),
             Event::MapRequest(e) => self.manage_client(e),
             Event::MapNotify(e) => {
-                let ours = self.alerts.iter().any(|a| a.window == e.window);
+                let ours = self.alerts.iter().any(|a| a.window == e.window)
+                    || self.prompt.as_ref().is_some_and(|p| p.window == e.window);
                 if e.override_redirect && !ours && !self.overlays.contains(&e.window) {
                     self.overlays.push(e.window);
                 }
@@ -169,10 +165,12 @@ impl WindowManager {
                 if self.handle_drag_motion(&e)? {
                     return Ok(());
                 }
-                // Only reaches us while the pointer is over the root (empty monitor area)
                 self.focus_monitor_at(e.root_x, e.root_y)
             }
             Event::Expose(e) if e.count == 0 => {
+                if self.prompt.as_ref().is_some_and(|p| p.window == e.window) {
+                    return self.draw_prompt();
+                }
                 match self.alerts.iter().find(|a| a.window == e.window) {
                     Some(alert) => self.redraw_alert(alert),
                     None => self.redraw_frame(e.window),
@@ -182,7 +180,6 @@ impl WindowManager {
             Event::ClientMessage(e) if e.type_ == self.atoms.net_wm_state => {
                 self.handle_state_request(e)
             }
-            // Outputs changed (e.g. the user ran xrandr)
             Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
             Event::Error(e) => {
                 eprintln!("X11 error: {:?}", e);

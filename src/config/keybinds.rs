@@ -5,9 +5,9 @@ use anyhow::Result;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{KeyPressEvent, ModMask};
 
-use super::{COLUMN_WIDTH_STEP, EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP, launch_dmenu};
+use super::{COLUMN_WIDTH_STEP, EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP};
 use crate::keybindings::KeyAction;
-use crate::keyboard::{self, Keymap, normalize_modifiers};
+use crate::keyboard::{self, normalize_modifiers};
 use crate::keysyms::*;
 use crate::screenshot::Shot;
 use crate::utils::{command_output, mic_status, volume_status};
@@ -15,7 +15,7 @@ use crate::wm::WindowManager;
 
 impl WindowManager {
     pub fn setup_keybindings(&mut self) -> Result<()> {
-        let keymap = Keymap::new(&self.conn)?;
+        let keymap = &self.keymap;
         const SUPER: ModMask = ModMask::M4;
         let super_shift = ModMask::M4 | ModMask::SHIFT;
         let none = ModMask::default();
@@ -27,7 +27,6 @@ impl WindowManager {
             }
         };
 
-        // === Normal mode ===
         let digits = [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9];
         for (workspace_id, keysym) in (1..).zip(digits) {
             bind(keysym, SUPER, KeyAction::SwitchWorkspace(workspace_id));
@@ -46,7 +45,6 @@ impl WindowManager {
             }),
         );
 
-        // Monitors
         bind(
             XK_COMMA,
             SUPER,
@@ -87,7 +85,6 @@ impl WindowManager {
             }),
         );
 
-        // Clients
         bind(XK_J, SUPER, KeyAction::FocusNext);
         bind(XK_K, SUPER, KeyAction::FocusPrev);
         bind(
@@ -124,7 +121,6 @@ impl WindowManager {
         );
         bind(XK_C, super_shift, KeyAction::CloseWindow);
 
-        // Column width
         bind(
             XK_H,
             SUPER,
@@ -154,7 +150,35 @@ impl WindowManager {
             }),
         );
 
-        // Misc
+        bind(
+            XK_P,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.prompt_run(false).ok();
+            }),
+        );
+        bind(
+            XK_P,
+            super_shift,
+            KeyAction::Custom(|wm| {
+                wm.prompt_run(true).ok();
+            }),
+        );
+        bind(
+            XK_W,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.prompt_clients().ok();
+            }),
+        );
+        bind(
+            XK_SEMICOLON,
+            SUPER,
+            KeyAction::Custom(|wm| {
+                wm.prompt_commands().ok();
+            }),
+        );
+
         bind(XK_RETURN, SUPER, KeyAction::Spawn(TERMINAL_APP.to_string()));
         bind(XK_A, SUPER, KeyAction::EnterMode("apps".to_string()));
         bind(XK_S, SUPER, KeyAction::EnterMode("alerts".to_string()));
@@ -174,7 +198,6 @@ impl WindowManager {
         );
         bind(XK_ESCAPE, super_shift, KeyAction::Quit);
 
-        // Media keys
         bind(
             XK_AUDIO_RAISE_VOL,
             none,
@@ -208,7 +231,6 @@ impl WindowManager {
             }),
         );
 
-        // Screenshots, saved to SCREENSHOT_DIR and copied to the clipboard
         bind(
             XK_PRINT,
             none,
@@ -231,7 +253,6 @@ impl WindowManager {
             }),
         );
 
-        // === Submap: apps (oneshot) ===
         let submaps: [(&str, Vec<(u32, KeyAction)>); 2] = [
             (
                 "apps",
@@ -241,11 +262,9 @@ impl WindowManager {
                     (XK_F, KeyAction::Spawn(FILEMANAGER_APP.to_string())),
                 ],
             ),
-            // === Submap: alerts (oneshot) ===
             (
                 "alerts",
                 vec![
-                    (XK_L, KeyAction::Custom(|_| launch_dmenu())),
                     (
                         XK_B,
                         KeyAction::Custom(|wm| {
@@ -286,7 +305,6 @@ impl WindowManager {
         self.update_grabs()
     }
 
-    /// Grab the keys of normal mode, or the whole keyboard inside a submap
     fn update_grabs(&self) -> Result<()> {
         keyboard::ungrab_all_keys(&self.conn, self.root)?;
 
@@ -337,8 +355,7 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Run the action bound to a key. Inside a submap, an unbound key goes back
-    /// to normal mode
+    /// Inside a submap, an unbound key goes back to normal mode
     pub fn handle_key_press(&mut self, event: &KeyPressEvent) -> Result<()> {
         let modifiers = normalize_modifiers(ModMask::from(u16::from(event.state)));
 
@@ -364,6 +381,54 @@ impl WindowManager {
         Ok(())
     }
 }
+
+pub const COMMANDS: &[(&str, fn(&mut WindowManager))] = &[
+    ("terminal", |wm| wm.run_command(TERMINAL_APP, false)),
+    ("editor", |wm| wm.run_command(EDITOR_APP, false)),
+    ("files", |wm| wm.run_command(FILEMANAGER_APP, false)),
+    ("fullscreen", |wm| {
+        if let Some(window) = wm.focused_client() {
+            wm.toggle_fullscreen(window).ok();
+        }
+    }),
+    ("float", |wm| {
+        if let Some(window) = wm.focused_client() {
+            wm.toggle_floating(window).ok();
+        }
+    }),
+    ("maximize", |wm| {
+        wm.toggle_maximize_column().ok();
+    }),
+    ("close", |wm| {
+        wm.close_focused_client().ok();
+    }),
+    ("screenshot", |wm| {
+        wm.screenshot(Shot::Monitor).ok();
+    }),
+    ("screenshot area", |wm| {
+        wm.screenshot(Shot::Area).ok();
+    }),
+    ("screenshot client", |wm| {
+        wm.screenshot(Shot::Window).ok();
+    }),
+    ("battery", |wm| {
+        wm.draw_alert(battery_status()).ok();
+    }),
+    ("volume", |wm| {
+        wm.draw_alert(volume_status()).ok();
+    }),
+    ("date", |wm| {
+        let date = command_output("date '+%a %d %b %H:%M'");
+        wm.draw_alert(format!("[DATE] {}", date)).ok();
+    }),
+    ("monitors", |wm| {
+        if wm.refresh_monitors().is_ok() {
+            wm.draw_alert(format!("[MON] {} detected", wm.monitors.count()))
+                .ok();
+        }
+    }),
+    ("quit", |_| exit(0)),
+];
 
 fn battery_status() -> String {
     let read = |file: &str| {

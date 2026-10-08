@@ -2,7 +2,6 @@
 //! Not all of them are bound, add the missing ones here when needed.
 #![allow(dead_code)]
 
-// Letters
 pub const XK_A: u32 = 0x0061;
 pub const XK_B: u32 = 0x0062;
 pub const XK_C: u32 = 0x0063;
@@ -30,7 +29,6 @@ pub const XK_X: u32 = 0x0078;
 pub const XK_Y: u32 = 0x0079;
 pub const XK_Z: u32 = 0x007a;
 
-// Digits
 pub const XK_0: u32 = 0x0030;
 pub const XK_1: u32 = 0x0031;
 pub const XK_2: u32 = 0x0032;
@@ -42,7 +40,6 @@ pub const XK_7: u32 = 0x0037;
 pub const XK_8: u32 = 0x0038;
 pub const XK_9: u32 = 0x0039;
 
-// Punctuation
 pub const XK_SPACE: u32 = 0x0020;
 pub const XK_COMMA: u32 = 0x002c;
 pub const XK_PERIOD: u32 = 0x002e;
@@ -52,7 +49,6 @@ pub const XK_SLASH: u32 = 0x002f;
 pub const XK_SEMICOLON: u32 = 0x003b;
 pub const XK_GRAVE: u32 = 0x0060;
 
-// Editing and navigation
 pub const XK_BACKSPACE: u32 = 0xff08;
 pub const XK_TAB: u32 = 0xff09;
 pub const XK_RETURN: u32 = 0xff0d;
@@ -62,9 +58,13 @@ pub const XK_LEFT: u32 = 0xff51;
 pub const XK_UP: u32 = 0xff52;
 pub const XK_RIGHT: u32 = 0xff53;
 pub const XK_DOWN: u32 = 0xff54;
+pub const XK_HOME: u32 = 0xff50;
+pub const XK_PAGE_UP: u32 = 0xff55;
+pub const XK_PAGE_DOWN: u32 = 0xff56;
+pub const XK_END: u32 = 0xff57;
+pub const XK_KP_ENTER: u32 = 0xff8d;
 pub const XK_PRINT: u32 = 0xff61;
 
-// Function keys
 pub const XK_F1: u32 = 0xffbe;
 pub const XK_F2: u32 = 0xffbf;
 pub const XK_F3: u32 = 0xffc0;
@@ -78,7 +78,6 @@ pub const XK_F10: u32 = 0xffc7;
 pub const XK_F11: u32 = 0xffc8;
 pub const XK_F12: u32 = 0xffc9;
 
-// Media keys
 pub const XK_AUDIO_LOWER_VOL: u32 = 0x1008ff11;
 pub const XK_AUDIO_MUTE: u32 = 0x1008ff12;
 pub const XK_AUDIO_RAISE_VOL: u32 = 0x1008ff13;

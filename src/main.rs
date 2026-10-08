@@ -9,6 +9,7 @@ mod keyboard;
 mod keysyms;
 mod layout;
 mod monitors;
+mod prompt;
 mod screenshot;
 mod utils;
 mod wm;

@@ -141,15 +141,40 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+Shift+R`         | re-read monitors                |
 | `Super+B`               | move pointer out of the way     |
 | `Super+G`               | clear alerts                    |
+| `Super+P`               | prompt: run a program           |
+| `Super+Shift+P`         | prompt: run a command and show its output |
+| `Super+W`               | prompt: jump to a client        |
+| `Super+;`               | prompt: WM commands (`COMMANDS`) |
 | `Super+Shift+Escape`    | quit                            |
 | `Super+A` → `t e f`     | terminal, editor, file manager  |
-| `Super+S` → `l b v d`   | dmenu, battery, volume, date    |
+| `Super+S` → `b v d`     | battery, volume, date           |
 | Media keys              | pamixer                         |
 | `Print`                 | screenshot of the current monitor |
 | `Shift+Print`           | screenshot of a selected area   |
 | `Super+Print`           | screenshot of the focused client |
 
 Alerts are small override-redirect windows (bottom right, 3 s) used as feedback.
+
+## Prompt
+
+An input line with a list below, filtered by what is typed (every word has to
+appear, ignoring case). It is an override-redirect window drawn with the font and
+colors of the decorations, and holds an active keyboard grab while it is open, so
+the bindings don't run.
+
+- `Super+P` lists the commands run before (`~/.local/share/dxwm/history`) and the
+  programs in `$PATH`. `Return` runs the selected entry, `Shift+Return` what was
+  typed, `Control+Return` runs it showing its output.
+- `Super+Shift+P` is the same launcher but `Return` shows the output: the command
+  runs in the background with stdout and stderr in a temporary file that the main
+  loop follows, so the prompt shows it live and the WM never waits. `j/k`, the
+  arrows, `PageUp/PageDown`, `Space`, `Home/End` scroll; `Escape`, `Return` or `q`
+  close it, killing the command (its whole process group) if it is still running.
+- `Super+W` lists the clients of every monitor and workspace, `Super+;` the
+  `COMMANDS` of `config/keybinds.rs`.
+- Editing keys are the readline ones (`C-a C-e C-b C-f C-h C-d C-w C-u C-k`),
+  `Tab` completes with the selected entry, `C-n/C-p` or the arrows move the
+  selection, `Escape` or `C-g` cancel.
 
 Screenshots (maim) are saved to `SCREENSHOT_DIR` (`~/Pictures/Screenshots`) and
 copied to the clipboard (xclip). They run in the background and the main loop
@@ -168,6 +193,7 @@ shows an alert when they finish; the WM never waits for them.
 | `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving       |
 | `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer   |
 | `alerts.rs`              | alert windows                                           |
+| `prompt.rs`              | prompt: launcher, command output, clients, commands     |
 | `screenshot.rs`          | background screenshots                                  |
 | `keybindings.rs`         | binding tables and modes                                |
 | `keyboard.rs`            | keymap and key grabs                                    |
