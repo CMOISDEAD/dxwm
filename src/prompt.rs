@@ -268,9 +268,9 @@ impl WindowManager {
             for workspace in &monitor.workspaces.workspaces {
                 for client in &workspace.clients {
                     let label = if several_monitors {
-                        format!("[{}:{}] {}", monitor_id, workspace.id, client.title)
+                        format!("[{}:{}] {}", monitor_id, workspace.number(), client.title)
                     } else {
-                        format!("[{}] {}", workspace.id, client.title)
+                        format!("[{}] {}", workspace.number(), client.title)
                     };
                     entries.push((label, Entry::Focus(client.window)));
                 }

@@ -9,8 +9,8 @@ pub type Action = fn(&mut WindowManager) -> anyhow::Result<()>;
 pub enum KeyAction {
     EnterMode(String),
     ExitMode,
-    SwitchWorkspace(u8),
-    MoveToWorkspace(u8),
+    SwitchWorkspace(usize),
+    MoveToWorkspace(usize),
     Custom(Action),
 }
 

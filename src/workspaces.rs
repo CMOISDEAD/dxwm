@@ -6,20 +6,25 @@ use crate::wm::WindowManager;
 
 #[derive(Debug, Clone)]
 pub struct Workspace {
-    pub id: u8,
+    /// Index in its monitor, shown to the user as `number()`
+    pub id: usize,
     pub clients: Vec<Client>,
     pub focused_client: Option<Window>,
     pub scroll: i32,
 }
 
 impl Workspace {
-    pub fn new(id: u8) -> Self {
+    pub fn new(id: usize) -> Self {
         Self {
             id,
             clients: Vec::new(),
             focused_client: None,
             scroll: 0,
         }
+    }
+
+    pub fn number(&self) -> usize {
+        self.id + 1
     }
 
     pub fn position(&self, window: Window) -> Option<usize> {
@@ -74,44 +79,44 @@ impl Workspace {
 #[derive(Debug, Clone)]
 pub struct WorkspaceManager {
     pub workspaces: Vec<Workspace>,
-    pub current_workspace: u8,
-    pub last_workspace: u8,
+    pub current_workspace: usize,
+    pub last_workspace: usize,
 }
 
 impl WorkspaceManager {
-    pub fn new(num_workspaces: u8) -> Self {
+    pub fn new(num_workspaces: usize) -> Self {
         Self {
-            workspaces: (1..=num_workspaces).map(Workspace::new).collect(),
-            current_workspace: 1,
-            last_workspace: 2,
+            workspaces: (0..num_workspaces).map(Workspace::new).collect(),
+            current_workspace: 0,
+            last_workspace: 1,
         }
     }
 
     pub fn current(&self) -> &Workspace {
-        &self.workspaces[(self.current_workspace - 1) as usize]
+        &self.workspaces[self.current_workspace]
     }
 
     pub fn current_mut(&mut self) -> &mut Workspace {
-        &mut self.workspaces[(self.current_workspace - 1) as usize]
+        &mut self.workspaces[self.current_workspace]
     }
 
-    pub fn get_mut(&mut self, id: u8) -> Option<&mut Workspace> {
-        self.workspaces.get_mut((id as usize).checked_sub(1)?)
+    pub fn get_mut(&mut self, id: usize) -> Option<&mut Workspace> {
+        self.workspaces.get_mut(id)
     }
 
-    pub fn contains(&self, id: u8) -> bool {
-        (1..=self.workspaces.len()).contains(&(id as usize))
+    pub fn contains(&self, id: usize) -> bool {
+        id < self.workspaces.len()
     }
 }
 
 impl WindowManager {
-    pub fn switch_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
+    pub fn switch_to_workspace(&mut self, workspace_id: usize) -> Result<bool> {
         let workspaces = &self.monitors.current().workspaces;
         if !workspaces.contains(workspace_id) || workspaces.current_workspace == workspace_id {
             return Ok(false);
         }
 
-        println!("Switching to workspace {}", workspace_id);
+        println!("Switching to workspace {}", workspace_id + 1);
 
         for window in self.workspace().windows() {
             self.hide_client(window)?;
@@ -131,7 +136,7 @@ impl WindowManager {
         Ok(true)
     }
 
-    pub fn move_focused_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
+    pub fn move_focused_to_workspace(&mut self, workspace_id: usize) -> Result<bool> {
         let workspaces = &self.monitors.current().workspaces;
         if !workspaces.contains(workspace_id) || workspaces.current_workspace == workspace_id {
             return Ok(false);
@@ -141,7 +146,7 @@ impl WindowManager {
             return Ok(false);
         };
 
-        println!("Moving client {} to workspace {}", window, workspace_id);
+        println!("Moving client {} to workspace {}", window, workspace_id + 1);
 
         self.hide_client(window)?;
 

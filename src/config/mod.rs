@@ -1,6 +1,6 @@
 pub mod keybinds;
 
-pub const NUM_WORKSPACES: u8 = 9;
+pub const NUM_WORKSPACES: usize = 9;
 
 pub const BORDER_WIDTH: u32 = 1;
 pub const MARGIN: u32 = 10;

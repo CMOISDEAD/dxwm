@@ -7,6 +7,7 @@ use crate::clients::{Client, Rect};
 use crate::config::MIN_COLUMN_WIDTH;
 use crate::wm::{Exit, WindowManager};
 
+/// Workspaces are saved by their number (`Workspace::number`)
 /// _DXWM_CLIENT: monitor, workspace, position, column width (per mille), focused,
 /// floating, x, y, width, height
 const CLIENT_STATE_LEN: usize = 10;
@@ -28,7 +29,7 @@ impl WindowManager {
             .chain(
                 monitors
                     .iter()
-                    .map(|m| m.workspaces.current_workspace as u32),
+                    .map(|m| m.workspaces.current().number() as u32),
             )
             .collect();
         self.conn.change_property32(
@@ -45,7 +46,7 @@ impl WindowManager {
                     let rect = client.floating.unwrap_or_default();
                     let state: [u32; CLIENT_STATE_LEN] = [
                         monitor_id as u32,
-                        workspace.id as u32,
+                        workspace.number() as u32,
                         position as u32,
                         (client.column_width * 1000.0).round() as u32,
                         (workspace.focused_client == Some(client.window)) as u32,
@@ -110,9 +111,11 @@ impl WindowManager {
 
         let saved = self.take_property(self.root, self.atoms.dxwm_monitors)?;
         if saved.len() == self.monitors.count() + 1 {
-            for (monitor, &id) in self.monitors.monitors.iter_mut().zip(&saved[1..]) {
-                if monitor.workspaces.contains(id as u8) {
-                    monitor.workspaces.current_workspace = id as u8;
+            for (monitor, &number) in self.monitors.monitors.iter_mut().zip(&saved[1..]) {
+                if let Some(id) = (number as usize).checked_sub(1)
+                    && monitor.workspaces.contains(id)
+                {
+                    monitor.workspaces.current_workspace = id;
                 }
             }
             if (saved[0] as usize) < self.monitors.count() {
@@ -129,9 +132,10 @@ impl WindowManager {
 
             if let Some(s) = &state {
                 if let Some(monitor) = self.monitors.get(s[0] as usize)
-                    && monitor.workspaces.contains(s[1] as u8)
+                    && let Some(id) = (s[1] as usize).checked_sub(1)
+                    && monitor.workspaces.contains(id)
                 {
-                    (monitor_id, workspace_id) = (s[0] as usize, s[1] as u8);
+                    (monitor_id, workspace_id) = (s[0] as usize, id);
                 }
                 focused = s[4] == 1;
                 client.column_width = (s[3] as f32 / 1000.0).clamp(MIN_COLUMN_WIDTH, 1.0);

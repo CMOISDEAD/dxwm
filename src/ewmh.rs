@@ -108,7 +108,7 @@ impl WindowManager {
             .monitors
             .iter()
             .flat_map(|m| m.workspaces.workspaces.iter())
-            .flat_map(|ws| ws.clients.iter().map(|c| (c.window, ws.id as u32 - 1)))
+            .flat_map(|ws| ws.clients.iter().map(|c| (c.window, ws.id as u32)))
             .collect();
 
         if clients != self.ewmh.clients {
@@ -147,7 +147,7 @@ impl WindowManager {
             self.ewmh.active = active;
         }
 
-        let desktop = self.workspace().id as u32 - 1;
+        let desktop = self.workspace().id as u32;
         if Some(desktop) != self.ewmh.desktop {
             self.conn.change_property32(
                 PropMode::REPLACE,
@@ -172,10 +172,7 @@ impl WindowManager {
         } else if e.type_ == atoms.net_close_window {
             self.close_client(e.window)
         } else if e.type_ == atoms.net_current_desktop {
-            let desktop = e.data.as_data32()[0];
-            if let Some(id) = desktop.checked_add(1).and_then(|id| u8::try_from(id).ok()) {
-                self.switch_to_workspace(id)?;
-            }
+            self.switch_to_workspace(e.data.as_data32()[0] as usize)?;
             Ok(())
         } else {
             Ok(())

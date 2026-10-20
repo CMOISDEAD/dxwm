@@ -35,7 +35,7 @@ pub struct Monitor {
 }
 
 impl Monitor {
-    fn new(output: OutputGeometry, num_workspaces: u8) -> Self {
+    fn new(output: OutputGeometry, num_workspaces: usize) -> Self {
         Self {
             name: output.name,
             geometry: output.geometry,
@@ -76,11 +76,11 @@ impl MonitorChanges {
 pub struct MonitorManager {
     pub monitors: Vec<Monitor>,
     pub current_monitor: usize,
-    num_workspaces: u8,
+    num_workspaces: usize,
 }
 
 impl MonitorManager {
-    pub fn detect(conn: &RustConnection, root: Window, num_workspaces: u8) -> Result<Self> {
+    pub fn detect(conn: &RustConnection, root: Window, num_workspaces: usize) -> Result<Self> {
         let monitors = Self::query_outputs(conn, root)?
             .into_iter()
             .map(|output| Monitor::new(output, num_workspaces))

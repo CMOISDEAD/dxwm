@@ -26,7 +26,7 @@ impl WindowManager {
         };
 
         let digits = [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9];
-        for (workspace_id, keysym) in (1..).zip(digits) {
+        for (workspace_id, keysym) in digits.into_iter().enumerate() {
             bind(keysym, SUPER, KeyAction::SwitchWorkspace(workspace_id));
             bind(
                 keysym,
@@ -197,12 +197,12 @@ impl WindowManager {
             Custom(func) => func(self)?,
             KeyAction::SwitchWorkspace(index) => {
                 if self.switch_to_workspace(index)? {
-                    self.draw_alert(format!("[WS] {}", index))?;
+                    self.draw_alert(format!("[WS] {}", index + 1))?;
                 }
             }
             KeyAction::MoveToWorkspace(index) => {
                 if self.move_focused_to_workspace(index)? {
-                    self.draw_alert(format!("[MVWS] {}", index))?;
+                    self.draw_alert(format!("[MVWS] {}", index + 1))?;
                 }
             }
         }

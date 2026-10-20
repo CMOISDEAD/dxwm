@@ -83,7 +83,7 @@ impl WindowManager {
         self.workspace().focused_client
     }
 
-    pub fn find_client(&self, window: Window) -> Option<(usize, u8)> {
+    pub fn find_client(&self, window: Window) -> Option<(usize, usize)> {
         self.monitors
             .monitors
             .iter()
@@ -123,7 +123,11 @@ impl WindowManager {
             .find_map(|ws| ws.get_mut(window))
     }
 
-    fn workspace_of_mut(&mut self, monitor_id: usize, workspace_id: u8) -> Option<&mut Workspace> {
+    fn workspace_of_mut(
+        &mut self,
+        monitor_id: usize,
+        workspace_id: usize,
+    ) -> Option<&mut Workspace> {
         self.monitors
             .monitors
             .get_mut(monitor_id)?
@@ -131,7 +135,7 @@ impl WindowManager {
             .get_mut(workspace_id)
     }
 
-    fn is_workspace_visible(&self, monitor_id: usize, workspace_id: u8) -> bool {
+    fn is_workspace_visible(&self, monitor_id: usize, workspace_id: usize) -> bool {
         self.monitors
             .get(monitor_id)
             .is_some_and(|m| m.workspaces.current_workspace == workspace_id)
