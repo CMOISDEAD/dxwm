@@ -5,7 +5,7 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use crate::clients::{Client, Rect};
 use crate::config::MIN_COLUMN_WIDTH;
-use crate::wm::WindowManager;
+use crate::wm::{Exit, WindowManager};
 
 /// _DXWM_CLIENT: monitor, workspace, position, column width (per mille), focused,
 /// floating, x, y, width, height
@@ -17,7 +17,7 @@ impl WindowManager {
     pub fn restart(&mut self) -> Result<()> {
         self.close_prompt()?;
         self.save_state()?;
-        self.restarting = true;
+        self.exit = Some(Exit::Restart);
         Ok(())
     }
 

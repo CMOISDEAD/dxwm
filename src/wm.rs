@@ -22,6 +22,12 @@ use crate::monitors::MonitorManager;
 use crate::prompt::Prompt;
 use crate::screenshot::Screenshot;
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Exit {
+    Quit,
+    Restart,
+}
+
 pub struct WindowManager {
     pub conn: RustConnection,
     pub root: Window,
@@ -39,7 +45,7 @@ pub struct WindowManager {
     pub overlays: Vec<Window>,
     pub docks: Vec<Window>,
     pub enter_barrier: u64,
-    pub restarting: bool,
+    pub exit: Option<Exit>,
 }
 
 impl WindowManager {
@@ -108,7 +114,7 @@ impl WindowManager {
             overlays: Vec::new(),
             docks: Vec::new(),
             enter_barrier: 0,
-            restarting: false,
+            exit: None,
         })
     }
 
@@ -148,8 +154,18 @@ impl WindowManager {
             || self.bars.contains(window)
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        while !self.restarting {
+    pub fn quit(&mut self) -> Result<()> {
+        self.close_prompt()?;
+        self.exit = Some(Exit::Quit);
+        Ok(())
+    }
+
+    pub fn run(&mut self) -> Result<Exit> {
+        loop {
+            if let Some(exit) = self.exit {
+                return Ok(exit);
+            }
+
             while let Some(event) = self.conn.poll_for_event()? {
                 if let Err(err) = self.handle_event(event) {
                     eprintln!("Error handling event: {:#}", err);
@@ -163,7 +179,6 @@ impl WindowManager {
 
             sleep(Duration::from_millis(32));
         }
-        Ok(())
     }
 
     fn handle_event(&mut self, event: Event) -> Result<()> {

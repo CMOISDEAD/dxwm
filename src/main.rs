@@ -39,8 +39,11 @@ fn main() -> Result<()> {
         run_autostart();
     }
 
-    wm.run()?;
+    let exit = wm.run()?;
     drop(wm);
+    if exit == wm::Exit::Quit {
+        return Ok(());
+    }
 
     let mut args = env::args_os();
     let program = args.next().unwrap_or_else(|| "dxwm".into());

@@ -1,5 +1,3 @@
-use std::process::exit;
-
 use anyhow::Result;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{KeyPressEvent, ModMask};
@@ -356,7 +354,7 @@ impl WindowManager {
                     self.draw_alert(format!("[MVWS] {}", index))?;
                 }
             }
-            KeyAction::Quit => exit(0),
+            KeyAction::Quit => self.quit()?,
         }
         Ok(())
     }
@@ -435,5 +433,7 @@ pub const COMMANDS: &[(&str, fn(&mut WindowManager))] = &[
     ("restart", |wm| {
         wm.restart().ok();
     }),
-    ("quit", |_| exit(0)),
+    ("quit", |wm| {
+        wm.quit().ok();
+    }),
 ];
