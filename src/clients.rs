@@ -406,22 +406,42 @@ impl WindowManager {
 
         if fullscreen {
             println!("Setting client {} to fullscreen", window);
-            self.conn.change_property32(
-                PropMode::REPLACE,
+        } else {
+            println!("Removing fullscreen from client {}", window);
+        }
+
+        // Only the fullscreen atom is ours, the client may have set other states
+        let atom = self.atoms.net_wm_state_fullscreen;
+        let mut state: Vec<Atom> = self
+            .conn
+            .get_property(
+                false,
                 window,
                 self.atoms.net_wm_state,
                 AtomEnum::ATOM,
-                &[self.atoms.net_wm_state_fullscreen],
-            )?;
-        } else {
-            println!("Removing fullscreen from client {}", window);
-            self.conn.delete_property(window, self.atoms.net_wm_state)?;
+                0,
+                1024,
+            )?
+            .reply()?
+            .value32()
+            .map(Iterator::collect)
+            .unwrap_or_default();
+        state.retain(|&a| a != atom);
+        if fullscreen {
+            state.push(atom);
         }
+
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            self.atoms.net_wm_state,
+            AtomEnum::ATOM,
+            &state,
+        )?;
 
         self.layout_monitor(monitor_id)
     }
 
-    /// _NET_WM_STATE client message. Only fullscreen is supported
     pub fn handle_state_request(&mut self, e: ClientMessageEvent) -> Result<()> {
         let [action, first, second, ..] = e.data.as_data32();
         let fullscreen = self.atoms.net_wm_state_fullscreen;
