@@ -171,6 +171,9 @@ are `BORDER_*` and `TITLE_BG_*`/`TITLE_FG_*` (focused / unfocused) in
 - Every layout/warp sets `enter_barrier`; `EnterNotify` events generated before it
   are ignored, so windows moving under a still pointer don't steal the focus.
 - Only the focused client of the current monitor gets the focused colors.
+- ICCCM focus models: the input focus is set unless `WM_HINTS` says `input =
+  false`, and clients with `WM_TAKE_FOCUS` in `WM_PROTOCOLS` also get that message
+  (globally active clients like Java only get the message).
 
 ## Keybindings
 
@@ -277,7 +280,6 @@ shows an alert when they finish; the WM never waits for them.
       (niri's consume/expel) and resize columns with the mouse.
 - [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
       (min/max, increments) when resizing floating clients.
-- [ ] Respect `WM_HINTS` input and `WM_TAKE_FOCUS` (some toolkits need it to get focus).
 - [ ] Block on the X connection instead of polling every 32 ms (wake up only for
       events or alert expiry).
 - [ ] Urgency hint in the border or as an alert.

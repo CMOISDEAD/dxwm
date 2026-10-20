@@ -1,6 +1,7 @@
 use anyhow::Result;
 use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection;
+use x11rb::properties::WmHints;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
@@ -30,6 +31,9 @@ pub struct Client {
     pub floating: Option<Rect>,
     /// Fraction of the monitor width while tiled
     pub column_width: f32,
+    /// ICCCM focus model: `WM_HINTS` input and `WM_TAKE_FOCUS` in `WM_PROTOCOLS`
+    pub input: bool,
+    pub take_focus: bool,
 }
 
 impl Client {
@@ -45,6 +49,8 @@ impl Client {
             fullscreen: false,
             floating,
             column_width: DEFAULT_COLUMN_WIDTH,
+            input: true,
+            take_focus: false,
         }
     }
 
@@ -139,9 +145,14 @@ impl WindowManager {
     pub fn focus_current(&mut self) -> Result<()> {
         match self.focused_client() {
             Some(window) => {
-                self.conn
-                    .set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
                 if let Some(client) = self.client(window) {
+                    if client.input {
+                        self.conn
+                            .set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
+                    }
+                    if client.take_focus {
+                        self.send_protocol(window, self.atoms.wm_take_focus)?;
+                    }
                     self.conn.configure_window(
                         client.frame,
                         &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
@@ -242,7 +253,32 @@ impl WindowManager {
         let frame = self.create_frame(window)?;
         self.conn.map_window(window)?;
 
-        Ok(Client::new(window, frame, title, floating))
+        let mut client = Client::new(window, frame, title, floating);
+        (client.input, client.take_focus) = self.read_focus_model(window)?;
+        Ok(client)
+    }
+
+    fn read_focus_model(&self, window: Window) -> Result<(bool, bool)> {
+        let input = WmHints::get(&self.conn, window)?
+            .reply()
+            .ok()
+            .flatten()
+            .and_then(|hints| hints.input)
+            .unwrap_or(true);
+        let take_focus = self.protocols(window)?.contains(&self.atoms.wm_take_focus);
+        Ok((input, take_focus))
+    }
+
+    pub fn update_focus_model(&mut self, window: Window) -> Result<()> {
+        if self.client(window).is_none() {
+            return Ok(());
+        }
+
+        let (input, take_focus) = self.read_focus_model(window)?;
+        if let Some(client) = self.client_mut(window) {
+            (client.input, client.take_focus) = (input, take_focus);
+        }
+        Ok(())
     }
 
     pub fn wants_fullscreen(&self, window: Window) -> Result<bool> {
@@ -371,17 +407,12 @@ impl WindowManager {
             return Ok(());
         }
 
-        if self.supports_delete_window(window)? {
+        if self
+            .protocols(window)?
+            .contains(&self.atoms.wm_delete_window)
+        {
             println!("Sending WM_DELETE_WINDOW to client {}", window);
-
-            let event = ClientMessageEvent::new(
-                32,
-                window,
-                self.atoms.wm_protocols,
-                [self.atoms.wm_delete_window, CURRENT_TIME, 0, 0, 0],
-            );
-            self.conn
-                .send_event(false, window, EventMask::NO_EVENT, event)?;
+            self.send_protocol(window, self.atoms.wm_delete_window)?;
         } else {
             println!(
                 "Client {} doesn't support WM_DELETE_WINDOW, killing it",
@@ -394,7 +425,7 @@ impl WindowManager {
         Ok(())
     }
 
-    fn supports_delete_window(&self, window: Window) -> Result<bool> {
+    fn protocols(&self, window: Window) -> Result<Vec<Atom>> {
         let reply = self
             .conn
             .get_property(
@@ -407,9 +438,19 @@ impl WindowManager {
             )?
             .reply()?;
 
-        Ok(reply
-            .value32()
-            .is_some_and(|mut atoms| atoms.any(|a| a == self.atoms.wm_delete_window)))
+        Ok(reply.value32().map(Iterator::collect).unwrap_or_default())
+    }
+
+    fn send_protocol(&self, window: Window, protocol: Atom) -> Result<()> {
+        let event = ClientMessageEvent::new(
+            32,
+            window,
+            self.atoms.wm_protocols,
+            [protocol, CURRENT_TIME, 0, 0, 0],
+        );
+        self.conn
+            .send_event(false, window, EventMask::NO_EVENT, event)?;
+        Ok(())
     }
 
     pub fn toggle_fullscreen(&mut self, window: Window) -> Result<()> {

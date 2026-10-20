@@ -5,6 +5,7 @@ use x11rb::protocol::xproto::*;
 pub struct Atoms {
     pub wm_protocols: Atom,
     pub wm_delete_window: Atom,
+    pub wm_take_focus: Atom,
     pub utf8_string: Atom,
     pub net_supported: Atom,
     pub net_supporting_wm_check: Atom,
@@ -43,6 +44,7 @@ impl Atoms {
         Ok(Self {
             wm_protocols: intern("WM_PROTOCOLS")?,
             wm_delete_window: intern("WM_DELETE_WINDOW")?,
+            wm_take_focus: intern("WM_TAKE_FOCUS")?,
             utf8_string: intern("UTF8_STRING")?,
             net_supported: intern("_NET_SUPPORTED")?,
             net_supporting_wm_check: intern("_NET_SUPPORTING_WM_CHECK")?,

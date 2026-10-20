@@ -237,6 +237,11 @@ impl WindowManager {
                 }
                 Ok(())
             }
+            Event::PropertyNotify(e)
+                if e.atom == u32::from(AtomEnum::WM_HINTS) || e.atom == self.atoms.wm_protocols =>
+            {
+                self.update_focus_model(e.window)
+            }
             Event::PropertyNotify(e) => self.handle_property_notify(e),
             Event::ClientMessage(e) => self.handle_client_message(e),
             Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
