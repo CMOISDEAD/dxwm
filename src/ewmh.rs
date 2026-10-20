@@ -263,16 +263,8 @@ impl WindowManager {
             (self.atoms.net_wm_strut_partial, 12),
             (self.atoms.net_wm_strut, 4),
         ] {
-            let reply = self
-                .conn
-                .get_property(false, window, property, AtomEnum::CARDINAL, 0, length)?
-                .reply()?;
-
-            let Some(values) = reply.value32() else {
-                continue;
-            };
-            let values: Vec<u32> = values.collect();
-            if values.len() < length as usize {
+            let values = self.property32(window, property, AtomEnum::CARDINAL)?;
+            if values.len() < length {
                 continue;
             }
 
@@ -290,7 +282,7 @@ impl WindowManager {
                 0,
                 u32::MAX,
             ];
-            strut[..values.len()].copy_from_slice(&values);
+            strut[..length].copy_from_slice(&values[..length]);
             return Ok(Some(strut));
         }
 

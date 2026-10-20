@@ -81,39 +81,17 @@ impl WindowManager {
     }
 
     fn is_transient(&self, window: Window) -> Result<bool> {
-        let reply = self
-            .conn
-            .get_property(
-                false,
-                window,
-                AtomEnum::WM_TRANSIENT_FOR,
-                AtomEnum::WINDOW,
-                0,
-                1,
-            )?
-            .reply()?;
-
-        Ok(reply
-            .value32()
-            .is_some_and(|mut parents| parents.any(|w| w != x11rb::NONE)))
+        Ok(self
+            .property32(window, AtomEnum::WM_TRANSIENT_FOR, AtomEnum::WINDOW)?
+            .iter()
+            .any(|&parent| parent != x11rb::NONE))
     }
 
     pub fn has_window_type(&self, window: Window, types: &[Atom]) -> Result<bool> {
-        let reply = self
-            .conn
-            .get_property(
-                false,
-                window,
-                self.atoms.net_wm_window_type,
-                AtomEnum::ATOM,
-                0,
-                1024,
-            )?
-            .reply()?;
-
-        Ok(reply
-            .value32()
-            .is_some_and(|mut found| found.any(|t| types.contains(&t))))
+        Ok(self
+            .property32(window, self.atoms.net_wm_window_type, AtomEnum::ATOM)?
+            .iter()
+            .any(|t| types.contains(t)))
     }
 
     fn has_floating_type(&self, window: Window) -> Result<bool> {

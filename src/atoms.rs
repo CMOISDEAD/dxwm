@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 
+use crate::wm::WindowManager;
+
 pub struct Atoms {
     pub wm_protocols: Atom,
     pub wm_delete_window: Atom,
@@ -69,5 +71,21 @@ impl Atoms {
             dxwm_client: intern("_DXWM_CLIENT")?,
             dxwm_monitors: intern("_DXWM_MONITORS")?,
         })
+    }
+}
+
+impl WindowManager {
+    /// Empty if the window doesn't have it or it isn't of type `kind`
+    pub fn property32(
+        &self,
+        window: Window,
+        property: impl Into<Atom>,
+        kind: impl Into<Atom>,
+    ) -> Result<Vec<u32>> {
+        let reply = self
+            .conn
+            .get_property(false, window, property, kind, 0, 1024)?
+            .reply()?;
+        Ok(reply.value32().map(Iterator::collect).unwrap_or_default())
     }
 }

@@ -293,21 +293,9 @@ impl WindowManager {
     }
 
     pub fn wants_fullscreen(&self, window: Window) -> Result<bool> {
-        let reply = self
-            .conn
-            .get_property(
-                false,
-                window,
-                self.atoms.net_wm_state,
-                AtomEnum::ATOM,
-                0,
-                1024,
-            )?
-            .reply()?;
-
-        Ok(reply
-            .value32()
-            .is_some_and(|mut atoms| atoms.any(|a| a == self.atoms.net_wm_state_fullscreen)))
+        Ok(self
+            .property32(window, self.atoms.net_wm_state, AtomEnum::ATOM)?
+            .contains(&self.atoms.net_wm_state_fullscreen))
     }
 
     pub fn unmanage_client(&mut self, window: Window, destroyed: bool) -> Result<()> {
@@ -437,19 +425,7 @@ impl WindowManager {
     }
 
     fn protocols(&self, window: Window) -> Result<Vec<Atom>> {
-        let reply = self
-            .conn
-            .get_property(
-                false,
-                window,
-                self.atoms.wm_protocols,
-                AtomEnum::ATOM,
-                0,
-                1024,
-            )?
-            .reply()?;
-
-        Ok(reply.value32().map(Iterator::collect).unwrap_or_default())
+        self.property32(window, self.atoms.wm_protocols, AtomEnum::ATOM)
     }
 
     fn send_protocol(&self, window: Window, protocol: Atom) -> Result<()> {
@@ -488,20 +464,7 @@ impl WindowManager {
 
         // Only the fullscreen atom is ours, the client may have set other states
         let atom = self.atoms.net_wm_state_fullscreen;
-        let mut state: Vec<Atom> = self
-            .conn
-            .get_property(
-                false,
-                window,
-                self.atoms.net_wm_state,
-                AtomEnum::ATOM,
-                0,
-                1024,
-            )?
-            .reply()?
-            .value32()
-            .map(Iterator::collect)
-            .unwrap_or_default();
+        let mut state = self.property32(window, self.atoms.net_wm_state, AtomEnum::ATOM)?;
         state.retain(|&a| a != atom);
         if fullscreen {
             state.push(atom);
