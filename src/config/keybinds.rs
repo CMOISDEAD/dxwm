@@ -3,7 +3,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{KeyPressEvent, ModMask};
 
 use super::{COLUMN_WIDTH_STEP, EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP};
-use crate::keybindings::KeyAction;
+use crate::keybindings::{Action, KeyAction};
 use crate::keyboard::{self, normalize_modifiers};
 use crate::keysyms::*;
 use crate::screenshot::Shot;
@@ -37,83 +37,57 @@ impl WindowManager {
         bind(
             XK_TAB,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.cycle_last_workspace().ok();
-            }),
+            KeyAction::Custom(|wm| wm.cycle_last_workspace()),
         );
 
         bind(
             XK_COMMA,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.focus_prev_monitor().ok();
-            }),
+            KeyAction::Custom(|wm| wm.focus_prev_monitor()),
         );
         bind(
             XK_PERIOD,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.focus_next_monitor().ok();
-            }),
+            KeyAction::Custom(|wm| wm.focus_next_monitor()),
         );
         bind(
             XK_COMMA,
             super_shift,
-            KeyAction::Custom(|wm| {
-                wm.move_focused_to_prev_monitor().ok();
-            }),
+            KeyAction::Custom(|wm| wm.move_focused_to_prev_monitor()),
         );
         bind(
             XK_PERIOD,
             super_shift,
-            KeyAction::Custom(|wm| {
-                wm.move_focused_to_next_monitor().ok();
-            }),
+            KeyAction::Custom(|wm| wm.move_focused_to_next_monitor()),
         );
         // `xrandr --setmonitor` sends no RandR events
         bind(
             XK_R,
             super_shift,
             KeyAction::Custom(|wm| {
-                if wm.refresh_monitors().is_ok() {
-                    wm.draw_alert(format!("[MON] {} detected", wm.monitors.count()))
-                        .ok();
-                }
+                wm.refresh_monitors()?;
+                wm.draw_alert(format!("[MON] {} detected", wm.monitors.count()))
             }),
         );
 
         bind(XK_J, SUPER, KeyAction::FocusNext);
         bind(XK_K, SUPER, KeyAction::FocusPrev);
-        bind(
-            XK_J,
-            super_shift,
-            KeyAction::Custom(|wm| {
-                wm.swap_next().ok();
-            }),
-        );
-        bind(
-            XK_K,
-            super_shift,
-            KeyAction::Custom(|wm| {
-                wm.swap_prev().ok();
-            }),
-        );
+        bind(XK_J, super_shift, KeyAction::Custom(|wm| wm.swap_next()));
+        bind(XK_K, super_shift, KeyAction::Custom(|wm| wm.swap_prev()));
         bind(
             XK_F,
             SUPER,
-            KeyAction::Custom(|wm| {
-                if let Some(window) = wm.focused_client() {
-                    wm.toggle_fullscreen(window).ok();
-                }
+            KeyAction::Custom(|wm| match wm.focused_client() {
+                Some(window) => wm.toggle_fullscreen(window),
+                None => Ok(()),
             }),
         );
         bind(
             XK_SPACE,
             super_shift,
-            KeyAction::Custom(|wm| {
-                if let Some(window) = wm.focused_client() {
-                    wm.toggle_floating(window).ok();
-                }
+            KeyAction::Custom(|wm| match wm.focused_client() {
+                Some(window) => wm.toggle_floating(window),
+                None => Ok(()),
             }),
         );
         bind(XK_C, super_shift, KeyAction::CloseWindow);
@@ -121,85 +95,43 @@ impl WindowManager {
         bind(
             XK_H,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.resize_column(-COLUMN_WIDTH_STEP).ok();
-            }),
+            KeyAction::Custom(|wm| wm.resize_column(-COLUMN_WIDTH_STEP)),
         );
         bind(
             XK_L,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.resize_column(COLUMN_WIDTH_STEP).ok();
-            }),
+            KeyAction::Custom(|wm| wm.resize_column(COLUMN_WIDTH_STEP)),
         );
-        bind(
-            XK_R,
-            SUPER,
-            KeyAction::Custom(|wm| {
-                wm.cycle_column_width().ok();
-            }),
-        );
+        bind(XK_R, SUPER, KeyAction::Custom(|wm| wm.cycle_column_width()));
         bind(
             XK_M,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.toggle_maximize_column().ok();
-            }),
+            KeyAction::Custom(|wm| wm.toggle_maximize_column()),
         );
 
-        bind(
-            XK_P,
-            SUPER,
-            KeyAction::Custom(|wm| {
-                wm.prompt_run(false).ok();
-            }),
-        );
+        bind(XK_P, SUPER, KeyAction::Custom(|wm| wm.prompt_run(false)));
         bind(
             XK_P,
             super_shift,
-            KeyAction::Custom(|wm| {
-                wm.prompt_run(true).ok();
-            }),
+            KeyAction::Custom(|wm| wm.prompt_run(true)),
         );
-        bind(
-            XK_W,
-            SUPER,
-            KeyAction::Custom(|wm| {
-                wm.prompt_clients().ok();
-            }),
-        );
+        bind(XK_W, SUPER, KeyAction::Custom(|wm| wm.prompt_clients()));
         bind(
             XK_SEMICOLON,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.prompt_commands().ok();
-            }),
+            KeyAction::Custom(|wm| wm.prompt_commands()),
         );
 
         bind(XK_RETURN, SUPER, KeyAction::Spawn(TERMINAL_APP.to_string()));
         bind(XK_A, SUPER, KeyAction::EnterMode("apps".to_string()));
         bind(XK_S, SUPER, KeyAction::EnterMode("alerts".to_string()));
-        bind(
-            XK_B,
-            SUPER,
-            KeyAction::Custom(|wm| {
-                wm.banish_pointer().ok();
-            }),
-        );
-        bind(
-            XK_G,
-            SUPER,
-            KeyAction::Custom(|wm| {
-                wm.clear_alerts().ok();
-            }),
-        );
+        bind(XK_B, SUPER, KeyAction::Custom(|wm| wm.banish_pointer()));
+        bind(XK_G, SUPER, KeyAction::Custom(|wm| wm.clear_alerts()));
         bind(XK_ESCAPE, super_shift, KeyAction::Quit);
         bind(
             XK_R,
             SUPER | ModMask::CONTROL,
-            KeyAction::Custom(|wm| {
-                wm.restart().ok();
-            }),
+            KeyAction::Custom(|wm| wm.restart()),
         );
 
         bind(
@@ -207,7 +139,7 @@ impl WindowManager {
             none,
             KeyAction::Custom(|wm| {
                 command_output("pamixer -i 10");
-                wm.draw_alert(volume_status()).ok();
+                wm.draw_alert(volume_status())
             }),
         );
         bind(
@@ -215,7 +147,7 @@ impl WindowManager {
             none,
             KeyAction::Custom(|wm| {
                 command_output("pamixer -d 10");
-                wm.draw_alert(volume_status()).ok();
+                wm.draw_alert(volume_status())
             }),
         );
         bind(
@@ -223,7 +155,7 @@ impl WindowManager {
             none,
             KeyAction::Custom(|wm| {
                 command_output("pamixer -t");
-                wm.draw_alert(volume_status()).ok();
+                wm.draw_alert(volume_status())
             }),
         );
         bind(
@@ -231,30 +163,24 @@ impl WindowManager {
             none,
             KeyAction::Custom(|wm| {
                 command_output("pamixer --default-source -t");
-                wm.draw_alert(mic_status()).ok();
+                wm.draw_alert(mic_status())
             }),
         );
 
         bind(
             XK_PRINT,
             none,
-            KeyAction::Custom(|wm| {
-                wm.screenshot(Shot::Monitor).ok();
-            }),
+            KeyAction::Custom(|wm| wm.screenshot(Shot::Monitor)),
         );
         bind(
             XK_PRINT,
             ModMask::SHIFT,
-            KeyAction::Custom(|wm| {
-                wm.screenshot(Shot::Area).ok();
-            }),
+            KeyAction::Custom(|wm| wm.screenshot(Shot::Area)),
         );
         bind(
             XK_PRINT,
             SUPER,
-            KeyAction::Custom(|wm| {
-                wm.screenshot(Shot::Window).ok();
-            }),
+            KeyAction::Custom(|wm| wm.screenshot(Shot::Window)),
         );
 
         let submaps: [(&str, Vec<(u32, KeyAction)>); 2] = [
@@ -271,21 +197,14 @@ impl WindowManager {
                 vec![
                     (
                         XK_B,
-                        KeyAction::Custom(|wm| {
-                            wm.draw_alert(battery_status()).ok();
-                        }),
+                        KeyAction::Custom(|wm| wm.draw_alert(battery_status())),
                     ),
-                    (
-                        XK_V,
-                        KeyAction::Custom(|wm| {
-                            wm.draw_alert(volume_status()).ok();
-                        }),
-                    ),
+                    (XK_V, KeyAction::Custom(|wm| wm.draw_alert(volume_status()))),
                     (
                         XK_D,
                         KeyAction::Custom(|wm| {
                             let date = command_output("date '+%a %d %b %H:%M'");
-                            wm.draw_alert(format!("[DATE] {}", date)).ok();
+                            wm.draw_alert(format!("[DATE] {}", date))
                         }),
                     ),
                 ],
@@ -343,7 +262,7 @@ impl WindowManager {
             KeyAction::CloseWindow => self.close_focused_client()?,
             KeyAction::FocusNext => self.focus_next()?,
             KeyAction::FocusPrev => self.focus_prev()?,
-            KeyAction::Custom(func) => func(self),
+            KeyAction::Custom(func) => func(self)?,
             KeyAction::SwitchWorkspace(index) => {
                 if self.switch_to_workspace(index)? {
                     self.draw_alert(format!("[WS] {}", index))?;
@@ -367,12 +286,13 @@ impl WindowManager {
                 let should_exit =
                     self.keybindings.should_auto_exit() && !matches!(action, KeyAction::ExitMode);
 
-                self.execute_action(action)?;
+                let result = self.execute_action(action);
 
                 if should_exit {
                     self.keybindings.exit_mode();
                     self.update_grabs()?;
                 }
+                result?;
             }
             None if self.keybindings.is_in_submap() => {
                 self.keybindings.exit_mode();
@@ -385,55 +305,42 @@ impl WindowManager {
     }
 }
 
-pub const COMMANDS: &[(&str, fn(&mut WindowManager))] = &[
-    ("terminal", |wm| wm.run_command(TERMINAL_APP, false)),
-    ("editor", |wm| wm.run_command(EDITOR_APP, false)),
-    ("files", |wm| wm.run_command(FILEMANAGER_APP, false)),
-    ("fullscreen", |wm| {
-        if let Some(window) = wm.focused_client() {
-            wm.toggle_fullscreen(window).ok();
-        }
+pub const COMMANDS: &[(&str, Action)] = &[
+    ("terminal", |wm| {
+        wm.run_command(TERMINAL_APP, false);
+        Ok(())
     }),
-    ("float", |wm| {
-        if let Some(window) = wm.focused_client() {
-            wm.toggle_floating(window).ok();
-        }
+    ("editor", |wm| {
+        wm.run_command(EDITOR_APP, false);
+        Ok(())
     }),
-    ("maximize", |wm| {
-        wm.toggle_maximize_column().ok();
+    ("files", |wm| {
+        wm.run_command(FILEMANAGER_APP, false);
+        Ok(())
     }),
-    ("close", |wm| {
-        wm.close_focused_client().ok();
+    ("fullscreen", |wm| match wm.focused_client() {
+        Some(window) => wm.toggle_fullscreen(window),
+        None => Ok(()),
     }),
-    ("screenshot", |wm| {
-        wm.screenshot(Shot::Monitor).ok();
+    ("float", |wm| match wm.focused_client() {
+        Some(window) => wm.toggle_floating(window),
+        None => Ok(()),
     }),
-    ("screenshot area", |wm| {
-        wm.screenshot(Shot::Area).ok();
-    }),
-    ("screenshot client", |wm| {
-        wm.screenshot(Shot::Window).ok();
-    }),
-    ("battery", |wm| {
-        wm.draw_alert(battery_status()).ok();
-    }),
-    ("volume", |wm| {
-        wm.draw_alert(volume_status()).ok();
-    }),
+    ("maximize", |wm| wm.toggle_maximize_column()),
+    ("close", |wm| wm.close_focused_client()),
+    ("screenshot", |wm| wm.screenshot(Shot::Monitor)),
+    ("screenshot area", |wm| wm.screenshot(Shot::Area)),
+    ("screenshot client", |wm| wm.screenshot(Shot::Window)),
+    ("battery", |wm| wm.draw_alert(battery_status())),
+    ("volume", |wm| wm.draw_alert(volume_status())),
     ("date", |wm| {
         let date = command_output("date '+%a %d %b %H:%M'");
-        wm.draw_alert(format!("[DATE] {}", date)).ok();
+        wm.draw_alert(format!("[DATE] {}", date))
     }),
     ("monitors", |wm| {
-        if wm.refresh_monitors().is_ok() {
-            wm.draw_alert(format!("[MON] {} detected", wm.monitors.count()))
-                .ok();
-        }
+        wm.refresh_monitors()?;
+        wm.draw_alert(format!("[MON] {} detected", wm.monitors.count()))
     }),
-    ("restart", |wm| {
-        wm.restart().ok();
-    }),
-    ("quit", |wm| {
-        wm.quit().ok();
-    }),
+    ("restart", |wm| wm.restart()),
+    ("quit", |wm| wm.quit()),
 ];

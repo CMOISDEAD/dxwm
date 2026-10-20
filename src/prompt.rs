@@ -21,6 +21,7 @@ use crate::config::{
     TITLE_FG_FOCUSED, TITLE_PADDING,
 };
 use crate::decorations::encode_text;
+use crate::keybindings::Action;
 use crate::keyboard::keysym_to_char;
 use crate::keysyms::*;
 use crate::utils::detached;
@@ -34,7 +35,7 @@ const BLINK: Duration = Duration::from_millis(530);
 enum Entry {
     Run,
     Focus(Window),
-    Call(fn(&mut WindowManager)),
+    Call(Action),
 }
 
 pub struct Prompt {
@@ -659,7 +660,7 @@ impl WindowManager {
         match selected {
             Some((command, Entry::Run)) => self.run_command(&command, true),
             Some((_, Entry::Focus(window))) => self.jump_to_client(window)?,
-            Some((_, Entry::Call(command))) => command(self),
+            Some((_, Entry::Call(command))) => command(self)?,
             None => {}
         }
         Ok(())

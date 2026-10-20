@@ -3,6 +3,8 @@ use x11rb::protocol::xproto::{Keycode, ModMask};
 
 use crate::wm::WindowManager;
 
+pub type Action = fn(&mut WindowManager) -> anyhow::Result<()>;
+
 #[derive(Debug, Clone)]
 pub enum KeyAction {
     Spawn(String),
@@ -14,7 +16,7 @@ pub enum KeyAction {
     Quit,
     SwitchWorkspace(u8),
     MoveToWorkspace(u8),
-    Custom(fn(&mut WindowManager)),
+    Custom(Action),
 }
 
 #[derive(Clone, Debug)]
