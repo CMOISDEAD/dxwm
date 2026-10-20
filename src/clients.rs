@@ -17,8 +17,6 @@ pub struct Rect {
     pub height: u16,
 }
 
-/// A managed top-level window, reparented into a frame that draws its border and
-/// title bar. The geometry is the frame's last one set by the layout, border included
 #[derive(Debug, Clone)]
 pub struct Client {
     pub window: Window,
@@ -29,9 +27,8 @@ pub struct Client {
     pub width: u16,
     pub height: u16,
     pub fullscreen: bool,
-    /// Floating clients keep this geometry instead of being tiled
     pub floating: Option<Rect>,
-    /// Width while tiled, as a fraction of the monitor
+    /// Fraction of the monitor width while tiled
     pub column_width: f32,
 }
 
@@ -50,10 +47,13 @@ impl Client {
             column_width: DEFAULT_COLUMN_WIDTH,
         }
     }
+
+    pub fn is_tiled(&self) -> bool {
+        !self.fullscreen && self.floating.is_none()
+    }
 }
 
 impl WindowManager {
-    /// Visible workspace of the current monitor
     pub fn workspace(&self) -> &Workspace {
         self.monitors.current().workspaces.current()
     }
@@ -66,7 +66,6 @@ impl WindowManager {
         self.workspace().focused_client
     }
 
-    /// Find the monitor and workspace that own a client
     pub fn find_client(&self, window: Window) -> Option<(usize, u8)> {
         self.monitors
             .monitors
@@ -82,7 +81,6 @@ impl WindowManager {
             })
     }
 
-    /// Look up a client in any monitor/workspace
     pub fn client(&self, window: Window) -> Option<&Client> {
         self.monitors
             .monitors
@@ -122,8 +120,8 @@ impl WindowManager {
             .is_some_and(|m| m.workspaces.current_workspace == workspace_id)
     }
 
-    /// Unmap the frame of a client. The client itself stays mapped inside, so this
-    /// doesn't generate an UnmapNotify that could be mistaken for it withdrawing
+    /// Only the frame is unmapped: an UnmapNotify of the client would look like
+    /// it withdrawing
     pub fn hide_client(&mut self, window: Window) -> Result<()> {
         if let Some(client) = self.client(window) {
             self.conn.unmap_window(client.frame)?;
@@ -138,7 +136,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Give X input focus to the focused client of the current monitor (or the root)
     pub fn focus_current(&mut self) -> Result<()> {
         match self.focused_client() {
             Some(window) => {
@@ -162,10 +159,11 @@ impl WindowManager {
         }
 
         self.ignore_pending_enters()?;
+        self.sync_ewmh()?;
+        self.update_bars()?;
         self.update_client_borders()
     }
 
-    /// Focus a client, switching to its monitor if needed
     pub fn set_focused_client(&mut self, window: Window) -> Result<()> {
         let Some((monitor_id, workspace_id)) = self.find_client(window) else {
             return Ok(());
@@ -182,36 +180,48 @@ impl WindowManager {
         }
     }
 
-    /// MapRequest: start managing a new window in the visible workspace of the current monitor
-    pub fn manage_client(&mut self, e: MapRequestEvent) -> Result<()> {
-        let window = e.window;
+    pub fn jump_to_client(&mut self, window: Window) -> Result<()> {
+        let Some((monitor_id, workspace_id)) = self.find_client(window) else {
+            return Ok(());
+        };
+        let other_monitor = monitor_id != self.monitors.current_monitor;
 
-        // Already managed: it's inside its frame, which decides if it's visible
+        self.focus_monitor(monitor_id, false)?;
+        self.switch_to_workspace(workspace_id)?;
+        self.set_focused_client(window)?;
+        self.layout()?;
+
+        if other_monitor {
+            self.warp_pointer_to_focus()?;
+        }
+        Ok(())
+    }
+
+    pub fn manage_window(&mut self, window: Window) -> Result<()> {
+        // Its frame decides if it's visible
         if self.find_client(window).is_some() {
             self.conn.map_window(window)?;
             return Ok(());
         }
 
+        if self.is_dock(window)? {
+            return self.manage_dock(window);
+        }
+
         println!("Managing new client: {}", window);
 
-        self.conn.change_window_attributes(
-            window,
-            &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
-        )?;
-
-        let title = self.read_title(window)?;
-        let floating = self.initial_float_rect(window)?;
         let takes_focus = !self.is_notification(window)?;
-        let frame = self.create_frame(window)?;
-        self.conn.map_window(window)?;
+        let fullscreen = self.wants_fullscreen(window)?;
+        let client = self.new_client(window)?;
+        let frame = client.frame;
 
         let workspace = self.workspace_mut();
-        workspace.add_client(Client::new(window, frame, title, floating));
+        workspace.add_client(client);
         if takes_focus {
             workspace.focused_client = Some(window);
         }
 
-        if self.wants_fullscreen(window)? {
+        if fullscreen {
             self.set_fullscreen(window, true)?;
         } else {
             self.layout()?;
@@ -221,7 +231,21 @@ impl WindowManager {
         self.focus_current()
     }
 
-    fn wants_fullscreen(&self, window: Window) -> Result<bool> {
+    pub fn new_client(&mut self, window: Window) -> Result<Client> {
+        self.conn.change_window_attributes(
+            window,
+            &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+        )?;
+
+        let title = self.read_title(window)?;
+        let floating = self.initial_float_rect(window)?;
+        let frame = self.create_frame(window)?;
+        self.conn.map_window(window)?;
+
+        Ok(Client::new(window, frame, title, floating))
+    }
+
+    pub fn wants_fullscreen(&self, window: Window) -> Result<bool> {
         let reply = self
             .conn
             .get_property(
@@ -239,8 +263,6 @@ impl WindowManager {
             .is_some_and(|mut atoms| atoms.any(|a| a == self.atoms.net_wm_state_fullscreen)))
     }
 
-    /// UnmapNotify / DestroyNotify of a client: forget it and destroy its frame.
-    /// `destroyed` is false for UnmapNotify events. Events about frames are ignored
     pub fn unmanage_client(&mut self, window: Window, destroyed: bool) -> Result<()> {
         let Some((monitor_id, workspace_id)) = self.find_client(window) else {
             return Ok(());
@@ -260,10 +282,11 @@ impl WindowManager {
         }
 
         if monitor_id == self.monitors.current_monitor {
-            self.focus_current()?;
+            self.focus_current()
+        } else {
+            self.sync_ewmh()?;
+            self.update_bars()
         }
-
-        Ok(())
     }
 
     pub fn focus_next(&mut self) -> Result<()> {
@@ -274,7 +297,6 @@ impl WindowManager {
         self.focus_step(-1)
     }
 
-    /// Move the focus along the workspace, stopping at both ends
     fn focus_step(&mut self, step: isize) -> Result<()> {
         let workspace = self.workspace();
         let Some(current) = workspace.focused_client.and_then(|w| workspace.position(w)) else {
@@ -302,7 +324,6 @@ impl WindowManager {
         self.swap_step(-1)
     }
 
-    /// Swap the focused client with a neighbour, stopping at both ends
     fn swap_step(&mut self, step: isize) -> Result<()> {
         let workspace = self.workspace_mut();
 
@@ -322,7 +343,6 @@ impl WindowManager {
         self.layout()
     }
 
-    /// Only the focused client of the current monitor gets the focused decoration
     pub fn update_client_borders(&mut self) -> Result<()> {
         let focused = self.focused_client();
 
@@ -339,12 +359,17 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Ask the focused client to close with WM_DELETE_WINDOW, or kill it if it
-    /// doesn't support the protocol
     pub fn close_focused_client(&mut self) -> Result<()> {
-        let Some(window) = self.focused_client() else {
+        match self.focused_client() {
+            Some(window) => self.close_client(window),
+            None => Ok(()),
+        }
+    }
+
+    pub fn close_client(&mut self, window: Window) -> Result<()> {
+        if self.client(window).is_none() {
             return Ok(());
-        };
+        }
 
         if self.supports_delete_window(window)? {
             println!("Sending WM_DELETE_WINDOW to client {}", window);
@@ -394,7 +419,6 @@ impl WindowManager {
         }
     }
 
-    /// Set or unset fullscreen, updating _NET_WM_STATE so the client knows
     pub fn set_fullscreen(&mut self, window: Window, fullscreen: bool) -> Result<()> {
         let Some((monitor_id, _)) = self.find_client(window) else {
             return Ok(());
@@ -450,7 +474,7 @@ impl WindowManager {
             return Ok(());
         }
 
-        // _NET_WM_STATE_REMOVE = 0, _NET_WM_STATE_ADD = 1, _NET_WM_STATE_TOGGLE = 2
+        // _NET_WM_STATE_REMOVE, _NET_WM_STATE_ADD, _NET_WM_STATE_TOGGLE
         match action {
             0 => self.set_fullscreen(e.window, false),
             1 => self.set_fullscreen(e.window, true),

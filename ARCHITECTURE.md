@@ -16,7 +16,8 @@ make run-xephyr     # nested test session (scripts/xephyr.sh)
 exec /path/to/dxwm >> ~/.dxwm.log 2>&1
 ```
 
-On startup `~/.local/share/dxwm/autostart.sh` is run if it exists.
+On startup `~/.local/share/dxwm/autostart.sh` is run if it exists (not after a
+restart).
 
 **Monitors are not configured by dxwm.** Enable and place outputs yourself, e.g.
 in `autostart.sh`:
@@ -90,6 +91,62 @@ Override-redirect windows (dunst notifications, menus, tooltips) are not managed
 they place themselves. dxwm only remembers the mapped ones (`overlays`) to raise
 them again, together with its own alerts, every time it raises a client.
 
+## Docks and EWMH
+
+Windows of type `_NET_WM_WINDOW_TYPE_DOCK` (polybar, lemonbar...) are mapped but
+not managed. Their `_NET_WM_STRUT_PARTIAL` (or `_NET_WM_STRUT`) is subtracted
+from the monitors it touches: `Monitor::work_area()` is what the columns, the
+alerts and the modeline use. Fullscreen and floating clients still use the whole
+monitor.
+
+Published on the root: `_NET_SUPPORTED`, `_NET_SUPPORTING_WM_CHECK`,
+`_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`, `_NET_NUMBER_OF_DESKTOPS`,
+`_NET_DESKTOP_NAMES`, `_NET_CURRENT_DESKTOP`, and `_NET_WM_DESKTOP` on every
+client. The desktops are the workspaces of the current monitor. They are only
+written when they change (`Ewmh` keeps the last values).
+
+Client messages: `_NET_ACTIVE_WINDOW` jumps to the client (its monitor and
+workspace), `_NET_CLOSE_WINDOW` closes it, `_NET_CURRENT_DESKTOP` switches
+workspace and `_NET_WM_STATE` toggles fullscreen.
+
+## Restart
+
+`Super+Control+R` (or the `restart` command) re-executes dxwm keeping the clients:
+
+1. The state is saved as properties: `_DXWM_CLIENT` on each client (monitor,
+   workspace, position, column width, focused, floating geometry) and
+   `_DXWM_MONITORS` on the root (current monitor and workspace of each).
+2. dxwm returns from the main loop, closes its connection and `exec`s `argv[0]`
+   with `--restart`, so a freshly built binary is the one that runs. The clients
+   are in the save-set, so the server puts them back on the root.
+3. On startup, `adopt_windows` manages every mapped window found on the root and
+   restores the saved state. `--restart` skips the autostart and waits for the
+   server to drop the old connection.
+
+Windows left by another window manager are adopted the same way, without state.
+A mapped window reparented into its frame sends an `UnmapNotify` to the root;
+those are ignored, a client withdrawing is only seen through its frame.
+
+## Modeline
+
+A line in the style of Emacs' mode line at the bottom of each monitor, stacked
+**under every window**: it is only seen where the desktop is (an empty workspace,
+or the space a strip doesn't fill).
+
+```
+ 1  ▮▮▯   2   3  ▬ ------------------------------------- BAT 82%  Mon 19 Oct 21:49
+```
+
+- The workspaces with clients and the visible one, which is in inverse video
+  (gray on the monitors without the focus).
+- After each number, a minimap of its strip: one block per column, scaled to
+  `MINIMAP_VIEW` pixels per monitor, the focused one darker. The visible
+  workspace has the part of the strip in view outlined.
+- Battery and date on the right, refreshed every 5 s.
+
+It's drawn again only when what it shows changes (`update_bars` compares with the
+last one drawn). `SHOW_BAR = false` disables it.
+
 ## Decorations
 
 Every client is reparented into a frame window (like herbstluftwm): the frame
@@ -145,6 +202,7 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+Shift+P`         | prompt: run a command and show its output |
 | `Super+W`               | prompt: jump to a client        |
 | `Super+;`               | prompt: WM commands (`COMMANDS`) |
+| `Super+Control+R`       | restart keeping the clients     |
 | `Super+Shift+Escape`    | quit                            |
 | `Super+A` → `t e f`     | terminal, editor, file manager  |
 | `Super+S` → `b v d`     | battery, volume, date           |
@@ -153,14 +211,22 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Shift+Print`           | screenshot of a selected area   |
 | `Super+Print`           | screenshot of the focused client |
 
-Alerts are small override-redirect windows (bottom right, 3 s) used as feedback.
+Alerts are a log used as feedback: one override-redirect window in the bottom
+right corner of the current monitor, `MARGIN` away from its edges like the
+clients. Each alert is a line with the time and its tag (`22:11:23 WS     2`);
+the newest one is typed in the title bar colors and the previous ones
+(`ALERT_LINES`, at most `ALERT_HISTORY` seconds old) are dimmed above it. The
+window hides 3 s after the last alert, unless a submap is active, and the lines
+are kept for the next one.
 
 ## Prompt
 
 An input line with a list below, filtered by what is typed (every word has to
 appear, ignoring case). It is an override-redirect window drawn with the font and
 colors of the decorations, and holds an active keyboard grab while it is open, so
-the bindings don't run.
+the bindings don't run. The input line reads like a shell prompt
+(`user@host:run$`, `out`, `win`, `cmd`) with a blinking block cursor, the counter
+is `[selected/total]`, and the characters that matched are underlined.
 
 - `Super+P` lists the commands run before (`~/.local/share/dxwm/history`) and the
   programs in `$PATH`. `Return` runs the selected entry, `Shift+Return` what was
@@ -192,7 +258,10 @@ shows an alert when they finish; the WM never waits for them.
 | `floating.rs`            | dialog detection, configure requests, mouse move/resize |
 | `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving       |
 | `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer   |
-| `alerts.rs`              | alert windows                                           |
+| `alerts.rs`              | alert log window                                        |
+| `bar.rs`                 | modeline with the workspace minimaps                    |
+| `ewmh.rs`                | EWMH properties and messages, docks and struts          |
+| `restart.rs`             | saving the state, re-exec and adopting windows          |
 | `prompt.rs`              | prompt: launcher, command output, clients, commands     |
 | `screenshot.rs`          | background screenshots                                  |
 | `keybindings.rs`         | binding tables and modes                                |
@@ -206,13 +275,9 @@ shows an alert when they finish; the WM never waits for them.
 
 - [ ] Columns: center the focused column, stack several clients in one column
       (niri's consume/expel) and resize columns with the mouse.
-- [ ] Manage windows that already exist on startup, so restarting dxwm doesn't lose them.
 - [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
       (min/max, increments) when resizing floating clients.
 - [ ] Respect `WM_HINTS` input and `WM_TAKE_FOCUS` (some toolkits need it to get focus).
-- [ ] Basic EWMH for bars and tools: `_NET_SUPPORTED`, `_NET_ACTIVE_WINDOW`,
-      `_NET_CLIENT_LIST`, `_NET_CURRENT_DESKTOP`.
 - [ ] Block on the X connection instead of polling every 32 ms (wake up only for
       events or alert expiry).
-- [ ] Restart in place (re-exec) keeping the clients.
 - [ ] Urgency hint in the border or as an alert.

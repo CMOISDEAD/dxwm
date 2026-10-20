@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.101"
-x11rb = { version = "0.13.2", features = ["all-extensions", "allow-unsafe-code"] }
+libc = "0.2.180"
+x11rb = { version = "0.13.2", features = ["all-extensions", "allow-unsafe-code", "cursor"] }

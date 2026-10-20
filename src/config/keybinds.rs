@@ -1,4 +1,3 @@
-use std::fs;
 use std::process::exit;
 
 use anyhow::Result;
@@ -10,7 +9,7 @@ use crate::keybindings::KeyAction;
 use crate::keyboard::{self, normalize_modifiers};
 use crate::keysyms::*;
 use crate::screenshot::Shot;
-use crate::utils::{command_output, detached, mic_status, volume_status};
+use crate::utils::{battery_status, command_output, detached, mic_status, volume_status};
 use crate::wm::WindowManager;
 
 impl WindowManager {
@@ -73,7 +72,7 @@ impl WindowManager {
                 wm.move_focused_to_next_monitor().ok();
             }),
         );
-        // RandR events already refresh them, this is for `xrandr --setmonitor` (no events)
+        // `xrandr --setmonitor` sends no RandR events
         bind(
             XK_R,
             super_shift,
@@ -197,6 +196,13 @@ impl WindowManager {
             }),
         );
         bind(XK_ESCAPE, super_shift, KeyAction::Quit);
+        bind(
+            XK_R,
+            SUPER | ModMask::CONTROL,
+            KeyAction::Custom(|wm| {
+                wm.restart().ok();
+            }),
+        );
 
         bind(
             XK_AUDIO_RAISE_VOL,
@@ -355,7 +361,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Inside a submap, an unbound key goes back to normal mode
     pub fn handle_key_press(&mut self, event: &KeyPressEvent) -> Result<()> {
         let modifiers = normalize_modifiers(ModMask::from(u16::from(event.state)));
 
@@ -427,22 +432,8 @@ pub const COMMANDS: &[(&str, fn(&mut WindowManager))] = &[
                 .ok();
         }
     }),
+    ("restart", |wm| {
+        wm.restart().ok();
+    }),
     ("quit", |_| exit(0)),
 ];
-
-fn battery_status() -> String {
-    let read = |file: &str| {
-        fs::read_to_string(format!("/sys/class/power_supply/BAT0/{}", file))
-            .map(|s| s.trim().to_string())
-            .unwrap_or_default()
-    };
-
-    let label = match read("status").as_str() {
-        "Charging" => "CHR",
-        "Discharging" => "BAT",
-        "Full" => "FULL",
-        _ => "UNK",
-    };
-
-    format!("[{}] {}%", label, read("capacity"))
-}

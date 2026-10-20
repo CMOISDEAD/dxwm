@@ -5,7 +5,6 @@ use x11rb::protocol::xproto::*;
 
 pub struct Keymap {
     keycodes: HashMap<u32, Keycode>,
-    /// Keysyms of every keycode, `per_keycode` each, starting at `min_keycode`
     keysyms: Vec<u32>,
     per_keycode: usize,
     min_keycode: Keycode,
@@ -28,7 +27,6 @@ impl Keymap {
             let keycode = setup.min_keycode + i as u8;
 
             for &keysym in keysyms.iter().filter(|&&k| k != 0) {
-                // Keep the lowest keycode producing the keysym
                 keycodes.entry(keysym).or_insert(keycode);
             }
         }
@@ -45,8 +43,6 @@ impl Keymap {
         self.keycodes.get(&keysym).copied()
     }
 
-    /// Keysym produced by a key with the modifiers of a key event (0 if none):
-    /// Shift picks the second level and AltGr the third and fourth
     pub fn keysym(&self, keycode: Keycode, state: u16) -> u32 {
         let row = keycode
             .checked_sub(self.min_keycode)
@@ -80,8 +76,7 @@ pub fn keysym_to_char(keysym: u32) -> Option<char> {
     }
 }
 
-/// NumLock/CapsLock combinations a grab has to be repeated with, so they don't
-/// break the bindings
+/// NumLock/CapsLock combinations a grab has to be repeated with
 pub fn lock_masks() -> [ModMask; 4] {
     [
         ModMask::default(),

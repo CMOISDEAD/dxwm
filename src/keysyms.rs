@@ -1,5 +1,4 @@
-//! X keysyms available for keybindings (values from X11/keysymdef.h and XF86keysym.h).
-//! Not all of them are bound, add the missing ones here when needed.
+//! From X11/keysymdef.h and XF86keysym.h
 #![allow(dead_code)]
 
 pub const XK_A: u32 = 0x0061;

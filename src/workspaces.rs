@@ -6,12 +6,9 @@ use crate::wm::WindowManager;
 
 #[derive(Debug, Clone)]
 pub struct Workspace {
-    /// 1-based, matches the number key used to reach it
     pub id: u8,
-    /// Clients in layout order
     pub clients: Vec<Client>,
     pub focused_client: Option<Window>,
-    /// How far the strip of tiled clients is scrolled to the left, in pixels
     pub scroll: i32,
 }
 
@@ -41,8 +38,6 @@ impl Workspace {
         self.clients.iter().map(|c| c.window).collect()
     }
 
-    /// Add a client right after the focused one: new columns open next to the
-    /// one in use and a dialog stays next to the client that opened it
     pub fn add_client(&mut self, client: Client) {
         let idx = match self.focused_client.and_then(|w| self.position(w)) {
             Some(focused) => focused + 1,
@@ -55,9 +50,6 @@ impl Workspace {
         self.clients.insert(idx, client);
     }
 
-    /// Remove a client. If it was focused, the focus moves to its right neighbour
-    /// (or the left one if it was the last). Closing a floating client goes back
-    /// to the left one, the client that opened it
     pub fn remove_client(&mut self, window: Window) -> Option<Client> {
         let idx = self.position(window)?;
         let client = self.clients.remove(idx);
@@ -113,7 +105,6 @@ impl WorkspaceManager {
 }
 
 impl WindowManager {
-    /// Show another workspace on the current monitor. Returns whether it changed
     pub fn switch_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
         let workspaces = &self.monitors.current().workspaces;
         if !workspaces.contains(workspace_id) || workspaces.current_workspace == workspace_id {
@@ -140,7 +131,6 @@ impl WindowManager {
         Ok(true)
     }
 
-    /// Send the focused client to another workspace of the current monitor
     pub fn move_focused_to_workspace(&mut self, workspace_id: u8) -> Result<bool> {
         let workspaces = &self.monitors.current().workspaces;
         if !workspaces.contains(workspace_id) || workspaces.current_workspace == workspace_id {

@@ -24,11 +24,9 @@ pub struct KeyBinding {
     pub action: KeyAction,
 }
 
-/// A named set of bindings without modifiers, entered from normal mode
 #[derive(Clone, Debug)]
 pub struct SubMap {
     pub bindings: Vec<KeyBinding>,
-    /// Go back to normal mode after running one action
     pub oneshot: bool,
 }
 
@@ -74,7 +72,6 @@ impl KeyBindingManager {
             .and_then(|mode| self.submaps.get(mode))
     }
 
-    /// Bindings of the current mode
     pub fn active_bindings(&self) -> &[KeyBinding] {
         match self.current_submap() {
             Some(submap) => &submap.bindings,
@@ -102,7 +99,6 @@ impl KeyBindingManager {
         }
     }
 
-    /// Whether the current submap goes back to normal mode after an action
     pub fn should_auto_exit(&self) -> bool {
         self.current_submap().is_some_and(|s| s.oneshot)
     }

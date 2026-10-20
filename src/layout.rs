@@ -9,9 +9,24 @@ use crate::config::{
     TITLE_HEIGHT,
 };
 use crate::wm::WindowManager;
+use crate::workspaces::Workspace;
+
+pub fn strip(workspace: &Workspace, width: i32) -> Vec<(Window, i32, i32)> {
+    let margin = MARGIN as i32;
+    let mut columns = Vec::new();
+    let mut end = 0;
+
+    for client in workspace.clients.iter().filter(|c| c.is_tiled()) {
+        let column =
+            ((client.column_width * (width - margin) as f32).round() as i32 - margin).max(1);
+        columns.push((client.window, end, column));
+        end += column + margin;
+    }
+
+    columns
+}
 
 impl WindowManager {
-    /// Arrange the visible workspace of the current monitor
     pub fn layout(&mut self) -> Result<()> {
         self.layout_monitor(self.monitors.current_monitor)
     }
@@ -23,12 +38,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Arrange the visible workspace of a monitor. Tiled clients are columns of a
-    /// horizontal strip, each with its own width, scrolled just enough to show the
-    /// focused one completely. Columns out of view are parked off-screen (kept
-    /// mapped, so scrolling is instant) and the ones cut by the monitor edge are
-    /// clipped. Fullscreen clients cover the monitor and floating ones keep their
-    /// own geometry on top
     pub fn layout_monitor(&mut self, monitor_id: usize) -> Result<()> {
         let Some(monitor) = self.monitors.get(monitor_id) else {
             return Ok(());
@@ -36,31 +45,27 @@ impl WindowManager {
 
         let (mon_x, mon_y) = (monitor.x as i32, monitor.y as i32);
         let (mon_width, mon_height) = (monitor.width as i32, monitor.height as i32);
+        let area = monitor.work_area();
+        let (area_x, area_width) = (area.x as i32, area.width as i32);
 
         let margin = MARGIN as i32;
-        let (y, height) = (mon_y + margin, mon_height - margin * 2);
-        // Width of the strip that is visible at once
-        let view = mon_width - margin * 2;
+        let (y, height) = (area.y as i32 + margin, area.height as i32 - margin * 2);
+        let view = area_width - margin * 2;
 
         let workspace = monitor.workspaces.current();
-        let is_tiled = |c: &&Client| !c.fullscreen && c.floating.is_none();
+        let columns = strip(workspace, area_width);
+        let end = columns.last().map_or(0, |&(_, start, width)| start + width);
 
-        // Position of every column in the strip, separated by `margin`. A fraction
-        // of 0.5 gives two columns that fit exactly in the view
-        let mut columns: Vec<(Window, i32, i32)> = Vec::new();
-        let mut end = 0;
-        for client in workspace.clients.iter().filter(is_tiled) {
-            let width = (client.column_width * (mon_width - margin) as f32).round() as i32 - margin;
-            columns.push((client.window, end, width.max(1)));
-            end += width.max(1) + margin;
-        }
-
-        // The column to keep in view: the focused client if it's tiled. Otherwise
-        // the closest tiled one before it, which is the one that opened a dialog
+        // A dialog keeps in view the column that opened it, the closest one before it
         let anchor = workspace
             .focused_client
             .and_then(|w| workspace.position(w))
-            .and_then(|idx| workspace.clients[..=idx].iter().rev().find(is_tiled))
+            .and_then(|idx| {
+                workspace.clients[..=idx]
+                    .iter()
+                    .rev()
+                    .find(|c| c.is_tiled())
+            })
             .map(|c| c.window);
 
         let mut scroll = workspace.scroll;
@@ -71,8 +76,7 @@ impl WindowManager {
                 scroll = start + width - view;
             }
         }
-        // Don't leave empty space at the end of the strip after closing clients
-        scroll = scroll.clamp(0, (end - margin - view).max(0));
+        scroll = scroll.clamp(0, (end - view).max(0));
 
         let clients: Vec<(Window, Window, bool, Option<Rect>)> = workspace
             .clients
@@ -93,7 +97,6 @@ impl WindowManager {
                     &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
                 )?;
             } else if let Some(rect) = floating {
-                // Keep it inside its monitor
                 let width = (rect.width as i32).min(mon_width);
                 let height = (rect.height as i32).min(mon_height);
                 let x = (rect.x as i32).clamp(mon_x, mon_x + mon_width - width);
@@ -101,8 +104,8 @@ impl WindowManager {
 
                 self.configure_client(window, x, y, width, height, true, None)?;
             } else if let Some(&(_, start, width)) = columns.iter().find(|c| c.0 == window) {
-                let x = mon_x + margin + start - scroll;
-                let visible = (x.max(mon_x), (x + width).min(mon_x + mon_width));
+                let x = area_x + margin + start - scroll;
+                let visible = (x.max(area_x), (x + width).min(area_x + area_width));
 
                 if visible.0 >= visible.1 {
                     // Monitors never have negative coordinates, so this is outside all of them
@@ -110,7 +113,6 @@ impl WindowManager {
                 } else if visible == (x, x + width) {
                     self.configure_client(window, x, y, width, height, true, None)?;
                 } else {
-                    // The rest would be drawn on the next monitor
                     self.configure_client(window, x, y, width, height, true, Some(visible))?;
                 }
             }
@@ -119,12 +121,11 @@ impl WindowManager {
         self.raise_floating(monitor_id)?;
         self.restack_alerts()?;
         self.ignore_pending_enters()?;
+        self.update_bars()?;
         self.conn.flush()?;
         Ok(())
     }
 
-    /// Set the width of the focused column with `change`, which gets the current
-    /// fraction and returns the new one
     fn set_column_width(&mut self, change: impl Fn(f32) -> f32) -> Result<()> {
         let Some(window) = self.focused_client() else {
             return Ok(());
@@ -145,12 +146,10 @@ impl WindowManager {
         self.draw_alert(format!("[WIDTH] {}%", percent))
     }
 
-    /// Make the focused column narrower (negative) or wider (positive)
     pub fn resize_column(&mut self, delta: f32) -> Result<()> {
         self.set_column_width(|width| width + delta)
     }
 
-    /// Switch the focused column to the next preset width, wrapping around
     pub fn cycle_column_width(&mut self) -> Result<()> {
         self.set_column_width(|width| {
             COLUMN_WIDTH_PRESETS
@@ -160,7 +159,6 @@ impl WindowManager {
         })
     }
 
-    /// Switch the focused column between the whole view and the default width
     pub fn toggle_maximize_column(&mut self) -> Result<()> {
         self.set_column_width(|width| {
             if width < 1.0 {
@@ -171,8 +169,6 @@ impl WindowManager {
         })
     }
 
-    /// Floating clients of the visible workspace stay above tiled and fullscreen
-    /// ones, with the focused one on top
     pub fn raise_floating(&self, monitor_id: usize) -> Result<()> {
         let Some(monitor) = self.monitors.get(monitor_id) else {
             return Ok(());
@@ -198,9 +194,8 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Move and resize a client's frame, and the client inside it. `width` and
-    /// `height` include the border. Undecorated clients (fullscreen) fill the frame.
-    /// `clip` is the horizontal range (root coordinates) of the frame to show
+    /// `width` and `height` include the border. `clip` is the horizontal range
+    /// (root coordinates) of the frame to show
     #[allow(clippy::too_many_arguments)]
     fn configure_client(
         &mut self,

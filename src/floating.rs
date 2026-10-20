@@ -8,21 +8,16 @@ use crate::config::{BORDER_WIDTH, TITLE_HEIGHT};
 use crate::keyboard::lock_masks;
 use crate::wm::WindowManager;
 
-/// Smallest frame a floating client can be resized to with the mouse
 const MIN_SIZE: i32 = 100;
 
-/// A floating client being moved or resized with the mouse
 pub struct Drag {
     window: Window,
     resize: bool,
-    /// Pointer position and client geometry when the button was pressed
     pointer: (i16, i16),
     rect: Rect,
 }
 
 impl WindowManager {
-    /// Super+Button1 moves and Super+Button3 resizes the floating client under the
-    /// pointer, Super+wheel moves the focus along the columns
     pub fn grab_buttons(&self) -> Result<()> {
         for button in [
             ButtonIndex::M1,
@@ -47,17 +42,12 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Geometry for a new client that should float instead of being tiled: transient
-    /// windows, dialog-like window types and fixed size windows. It keeps the size
-    /// the client asked for, and its position if it set one (USPosition/PPosition
-    /// in WM_NORMAL_HINTS). Otherwise it's centered on the current monitor
     pub fn initial_float_rect(&self, window: Window) -> Result<Option<Rect>> {
         let hints = WmSizeHints::get_normal_hints(&self.conn, window)?
             .reply()
             .ok()
             .flatten();
 
-        // Clients that can't be resized (min size == max size) make no sense tiled
         let fixed_size = hints.is_some_and(|h| h.min_size.is_some() && h.min_size == h.max_size);
 
         if !(fixed_size || self.is_transient(window)? || self.has_floating_type(window)?) {
@@ -70,7 +60,6 @@ impl WindowManager {
         let mut rect = self.centered_rect(width, height);
 
         if hints.is_some_and(|h| h.position.is_some()) {
-            // The layout keeps it inside the monitor
             rect.x = geometry.x;
             rect.y = geometry.y;
         }
@@ -109,7 +98,7 @@ impl WindowManager {
             .is_some_and(|mut parents| parents.any(|w| w != x11rb::NONE)))
     }
 
-    fn has_window_type(&self, window: Window, types: &[Atom]) -> Result<bool> {
+    pub fn has_window_type(&self, window: Window, types: &[Atom]) -> Result<bool> {
         let reply = self
             .conn
             .get_property(
@@ -139,13 +128,10 @@ impl WindowManager {
         )
     }
 
-    /// Notifications that are regular (not override-redirect) windows float, but
-    /// must not take the focus from what the user is doing
     pub fn is_notification(&self, window: Window) -> Result<bool> {
         self.has_window_type(window, &[self.atoms.net_wm_window_type_notification])
     }
 
-    /// Switch a client between tiled and floating
     pub fn toggle_floating(&mut self, window: Window) -> Result<()> {
         let Some((monitor_id, _)) = self.find_client(window) else {
             return Ok(());
@@ -165,8 +151,6 @@ impl WindowManager {
         self.focus_current()
     }
 
-    /// ConfigureRequest: windows we don't manage yet get what they ask for. Managed
-    /// ones only choose their geometry while floating, the rest is decided by the layout
     pub fn handle_configure_request(&mut self, e: ConfigureRequestEvent) -> Result<()> {
         let Some((monitor_id, _)) = self.find_client(e.window) else {
             self.conn
@@ -197,8 +181,7 @@ impl WindowManager {
         self.send_configure_notify(e.window)
     }
 
-    /// Tell a client its real geometry (ICCCM synthetic ConfigureNotify), so it
-    /// doesn't wait forever for a configure request we didn't honor
+    /// ICCCM: a client waits for this after a configure request we didn't honor
     fn send_configure_notify(&self, window: Window) -> Result<()> {
         let Some(client) = self.client(window) else {
             return Ok(());
@@ -230,8 +213,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// ButtonPress with Super: scroll the columns with the wheel, or start
-    /// moving/resizing the floating client under the pointer
     pub fn handle_button_press(&mut self, e: ButtonPressEvent) -> Result<()> {
         if e.detail == u8::from(ButtonIndex::M4) {
             return self.focus_prev();
@@ -264,8 +245,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Pointer motion while a button grab is active. Returns false if nothing is
-    /// being dragged
     pub fn handle_drag_motion(&mut self, e: &MotionNotifyEvent) -> Result<bool> {
         let Some(drag) = &self.drag else {
             return Ok(false);

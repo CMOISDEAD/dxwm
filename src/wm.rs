@@ -1,42 +1,49 @@
+use std::thread::sleep;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use x11rb::connection::{Connection, RequestConnection};
+use x11rb::cursor::Handle as CursorHandle;
 use x11rb::protocol::Event;
 use x11rb::protocol::randr::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::*;
 use x11rb::rust_connection::RustConnection;
 
-use crate::alerts::Alert;
+use crate::alerts::Alerts;
 use crate::atoms::Atoms;
+use crate::bar::Bars;
 use crate::config::NUM_WORKSPACES;
 use crate::decorations::Decorations;
+use crate::ewmh::Ewmh;
 use crate::floating::Drag;
 use crate::keybindings::KeyBindingManager;
 use crate::keyboard::Keymap;
 use crate::monitors::MonitorManager;
 use crate::prompt::Prompt;
 use crate::screenshot::Screenshot;
-use crate::utils::run_autostart;
 
 pub struct WindowManager {
     pub conn: RustConnection,
     pub root: Window,
     pub keybindings: KeyBindingManager,
     pub keymap: Keymap,
-    pub alerts: Vec<Alert>,
+    pub alerts: Alerts,
     pub prompt: Option<Prompt>,
     pub monitors: MonitorManager,
     pub atoms: Atoms,
     pub decorations: Decorations,
+    pub ewmh: Ewmh,
+    pub bars: Bars,
     pub drag: Option<Drag>,
     pub screenshot: Option<Screenshot>,
     pub overlays: Vec<Window>,
+    pub docks: Vec<Window>,
     pub enter_barrier: u64,
+    pub restarting: bool,
 }
 
 impl WindowManager {
-    pub fn new() -> Result<Self> {
+    pub fn new(restarted: bool) -> Result<Self> {
         let (conn, screen_num) =
             RustConnection::connect(None).context("Failed to connect to X server")?;
 
@@ -50,14 +57,27 @@ impl WindowManager {
                 | EventMask::STRUCTURE_NOTIFY,
         );
 
-        conn.change_window_attributes(root, &change)?
-            .check()
-            .context("Another window manager is already running")?;
+        // After a restart the server may not have dropped the old connection yet
+        let mut attempts = if restarted { 40 } else { 0 };
+        while let Err(err) = conn.change_window_attributes(root, &change)?.check() {
+            if attempts == 0 {
+                return Err(err).context("Another window manager is already running");
+            }
+            attempts -= 1;
+            sleep(Duration::from_millis(50));
+        }
+
+        let resources = x11rb::resource_manager::new_from_default(&conn)?;
+        let cursor = CursorHandle::new(&conn, screen_num, &resources)?
+            .reply()?
+            .load_cursor(&conn, "left_ptr")?;
+        conn.change_window_attributes(root, &ChangeWindowAttributesAux::new().cursor(cursor))?;
 
         let atoms = Atoms::new(&conn)?;
         let keymap = Keymap::new(&conn)?;
         let decorations = Decorations::new(&conn, root)?;
         let monitors = MonitorManager::detect(&conn, root, NUM_WORKSPACES)?;
+        let ewmh = Ewmh::new(&conn, root, &atoms)?;
 
         if conn
             .extension_information(randr::X11_EXTENSION_NAME)?
@@ -76,15 +96,19 @@ impl WindowManager {
             root,
             keybindings: KeyBindingManager::default(),
             keymap,
-            alerts: Vec::new(),
+            alerts: Alerts::default(),
             prompt: None,
             monitors,
             atoms,
             decorations,
+            ewmh,
+            bars: Bars::default(),
             drag: None,
             screenshot: None,
             overlays: Vec::new(),
+            docks: Vec::new(),
             enter_barrier: 0,
+            restarting: false,
         })
     }
 
@@ -118,43 +142,56 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        run_autostart();
+    pub fn is_own_window(&self, window: Window) -> bool {
+        self.alerts.window == Some(window)
+            || self.prompt.as_ref().is_some_and(|p| p.window == window)
+            || self.bars.contains(window)
+    }
 
-        loop {
+    pub fn run(&mut self) -> Result<()> {
+        while !self.restarting {
             while let Some(event) = self.conn.poll_for_event()? {
                 if let Err(err) = self.handle_event(event) {
                     eprintln!("Error handling event: {:#}", err);
                 }
             }
 
-            self.clear_old_alerts()?;
+            self.poll_alerts()?;
             self.poll_screenshot()?;
             self.poll_prompt()?;
+            self.poll_bars()?;
 
-            std::thread::sleep(Duration::from_millis(32));
+            sleep(Duration::from_millis(32));
         }
+        Ok(())
     }
 
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::KeyPress(e) if self.prompt.is_some() => self.handle_prompt_key(&e),
             Event::KeyPress(e) => self.handle_key_press(&e),
-            Event::MapRequest(e) => self.manage_client(e),
+            Event::MapRequest(e) => self.manage_window(e.window),
             Event::MapNotify(e) => {
-                let ours = self.alerts.iter().any(|a| a.window == e.window)
-                    || self.prompt.as_ref().is_some_and(|p| p.window == e.window);
-                if e.override_redirect && !ours && !self.overlays.contains(&e.window) {
+                if e.override_redirect
+                    && !self.is_own_window(e.window)
+                    && !self.overlays.contains(&e.window)
+                {
                     self.overlays.push(e.window);
                 }
                 Ok(())
             }
             Event::UnmapNotify(e) => {
                 self.overlays.retain(|&w| w != e.window);
+                self.unmanage_dock(e.window)?;
+                // Reparenting a mapped window into its frame unmaps it from the root
+                if e.event == self.root {
+                    return Ok(());
+                }
                 self.unmanage_client(e.window, false)
             }
             Event::DestroyNotify(e) => {
                 self.overlays.retain(|&w| w != e.window);
+                self.unmanage_dock(e.window)?;
                 self.unmanage_client(e.window, true)
             }
             Event::EnterNotify(e) => self.handle_enter_notify(e),
@@ -171,15 +208,22 @@ impl WindowManager {
                 if self.prompt.as_ref().is_some_and(|p| p.window == e.window) {
                     return self.draw_prompt();
                 }
-                match self.alerts.iter().find(|a| a.window == e.window) {
-                    Some(alert) => self.redraw_alert(alert),
-                    None => self.redraw_frame(e.window),
+                if self.alerts.window == Some(e.window) {
+                    return self.redraw_alerts();
                 }
+                if self.bars.contains(e.window) {
+                    return self.redraw_bar(e.window);
+                }
+                self.redraw_frame(e.window)
+            }
+            Event::PropertyNotify(e) if self.docks.contains(&e.window) => {
+                if e.atom == self.atoms.net_wm_strut || e.atom == self.atoms.net_wm_strut_partial {
+                    self.update_struts()?;
+                }
+                Ok(())
             }
             Event::PropertyNotify(e) => self.handle_property_notify(e),
-            Event::ClientMessage(e) if e.type_ == self.atoms.net_wm_state => {
-                self.handle_state_request(e)
-            }
+            Event::ClientMessage(e) => self.handle_client_message(e),
             Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
             Event::Error(e) => {
                 eprintln!("X11 error: {:?}", e);

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::env::{self, home_dir};
 use std::fs::{self, File, OpenOptions};
@@ -6,6 +7,7 @@ use std::os::unix::fs::{FileExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{self, Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use x11rb::connection::Connection;
@@ -15,7 +17,8 @@ use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 use crate::config::keybinds::COMMANDS;
 use crate::config::{
     BACKGROUND, BORDER_FOCUSED, BORDER_WIDTH, FOREGROUND, MARGIN, PROMPT_HISTORY, PROMPT_LINES,
-    PROMPT_OUTPUT_LINES, PROMPT_WIDTH, SELECTED, TITLE_BG_FOCUSED, TITLE_FG_FOCUSED, TITLE_PADDING,
+    PROMPT_OUTPUT_LINES, PROMPT_WIDTH, SELECTED_BG, SELECTED_FG, TITLE_BG_FOCUSED,
+    TITLE_FG_FOCUSED, TITLE_PADDING,
 };
 use crate::decorations::encode_text;
 use crate::keyboard::keysym_to_char;
@@ -23,8 +26,9 @@ use crate::keysyms::*;
 use crate::utils::detached;
 use crate::wm::WindowManager;
 
-const LINE_PADDING: i16 = 3;
+pub const LINE_PADDING: i16 = 3;
 const OUTPUT_LIMIT: usize = 256 * 1024;
+const BLINK: Duration = Duration::from_millis(530);
 
 #[derive(Clone, Copy)]
 enum Entry {
@@ -36,7 +40,7 @@ enum Entry {
 pub struct Prompt {
     pub window: Window,
     width: u16,
-    label: &'static str,
+    label: String,
     entries: Vec<(String, Entry)>,
     matches: Vec<usize>,
     input: Vec<char>,
@@ -48,6 +52,8 @@ pub struct Prompt {
     columns: usize,
     output_lines: usize,
     output: Option<Output>,
+    blink: Instant,
+    cursor_shown: Cell<bool>,
 }
 
 struct Output {
@@ -139,6 +145,10 @@ impl Output {
 }
 
 impl Prompt {
+    fn cursor_visible(&self) -> bool {
+        (self.blink.elapsed().as_millis() / BLINK.as_millis()).is_multiple_of(2)
+    }
+
     fn text(&self) -> String {
         self.input.iter().collect()
     }
@@ -245,7 +255,7 @@ impl WindowManager {
             .map(|command| (command, Entry::Run))
             .collect();
 
-        let label = if capture { "output: " } else { "run: " };
+        let label = shell_label(if capture { "out" } else { "run" });
         self.open_prompt(label, entries, true, capture)
     }
 
@@ -266,7 +276,7 @@ impl WindowManager {
             }
         }
 
-        self.open_prompt("client: ", entries, false, false)
+        self.open_prompt(shell_label("win"), entries, false, false)
     }
 
     pub fn prompt_commands(&mut self) -> Result<()> {
@@ -275,12 +285,12 @@ impl WindowManager {
             .map(|&(name, command)| (name.to_string(), Entry::Call(command)))
             .collect();
 
-        self.open_prompt(": ", entries, false, false)
+        self.open_prompt(shell_label("cmd"), entries, false, false)
     }
 
     fn open_prompt(
         &mut self,
-        label: &'static str,
+        label: String,
         entries: Vec<(String, Entry)>,
         shell: bool,
         capture: bool,
@@ -351,6 +361,8 @@ impl WindowManager {
             columns: columns.max(1) as usize,
             output_lines: output_lines as usize,
             output: None,
+            blink: Instant::now(),
+            cursor_shown: Cell::new(true),
         };
         prompt.filter();
 
@@ -387,15 +399,16 @@ impl WindowManager {
                 let last = (top + prompt.output_lines).min(count);
 
                 let state = match output.status {
-                    None => "running".to_string(),
+                    None => "[RUNNING]".to_string(),
                     Some(status) if status.success() => String::new(),
                     Some(status) => match status.code() {
-                        Some(code) => format!("exit {}", code),
-                        None => "killed".to_string(),
+                        Some(code) => format!("[EXIT {}]", code),
+                        None => "[KILLED]".to_string(),
                     },
                 };
                 let position = if count > prompt.output_lines {
-                    format!("{}-{}/{}", top + 1, last, count)
+                    let w = digits(count);
+                    format!("[{:0w$}-{:0w$}/{:0w$}]", top + 1, last, count)
                 } else {
                     String::new()
                 };
@@ -413,10 +426,13 @@ impl WindowManager {
                     .iter()
                     .map(|&index| prompt.entries[index].0.as_str())
                     .collect();
+                let count = prompt.matches.len();
+                let current = if count == 0 { 0 } else { prompt.selected + 1 };
+                let w = digits(count);
                 (
                     lines,
                     Some(prompt.selected - prompt.top),
-                    prompt.matches.len().to_string(),
+                    format!("[{:0w$}/{:0w$}]", current, count),
                 )
             }
         };
@@ -434,7 +450,7 @@ impl WindowManager {
         };
 
         let room = columns
-            .saturating_sub(prompt.label.len() + status.len() + 1)
+            .saturating_sub(prompt.label.chars().count() + status.len() + 1)
             .max(1);
         let start = (prompt.cursor + 1).saturating_sub(room);
         let end = (start + room).min(prompt.input.len());
@@ -462,25 +478,31 @@ impl WindowManager {
             &encode_text(&status, columns),
         )?;
 
-        if prompt.output.is_none() {
-            let cursor_column = prompt.label.len() + prompt.cursor - start;
-            decorations.fill(
+        let cursor_visible = prompt.output.is_none() && prompt.cursor_visible();
+        prompt.cursor_shown.set(cursor_visible);
+        if cursor_visible {
+            let cursor_column = prompt.label.chars().count() + prompt.cursor - start;
+            let under = prompt.input.get(prompt.cursor).copied().unwrap_or(' ');
+            decorations.draw_text(
                 &self.conn,
                 prompt.window,
-                Rectangle {
-                    x: TITLE_PADDING + cursor_column as i16 * char_width - 1,
-                    y: LINE_PADDING,
-                    width: 2,
-                    height: decorations.font_height() as u16,
-                },
-                TITLE_FG_FOCUSED,
+                (TITLE_PADDING + cursor_column as i16 * char_width, 0),
+                line_height,
+                (TITLE_BG_FOCUSED, TITLE_FG_FOCUSED),
+                &encode_text(&under.to_string(), 1),
             )?;
         }
+
+        let words: Vec<Vec<char>> = prompt
+            .text()
+            .split_whitespace()
+            .map(|word| word.chars().map(fold).collect())
+            .collect();
 
         for (row, text) in lines.iter().enumerate() {
             let y = line_height * (row as i16 + 1);
             let (foreground, background) = if selected == Some(row) {
-                (BACKGROUND, SELECTED)
+                (SELECTED_FG, SELECTED_BG)
             } else {
                 (FOREGROUND, BACKGROUND)
             };
@@ -494,6 +516,32 @@ impl WindowManager {
                 (foreground, background),
                 &encode_text(text, columns),
             )?;
+
+            if prompt.output.is_some() {
+                continue;
+            }
+
+            let shown = if text.chars().count() > columns {
+                columns.saturating_sub(3)
+            } else {
+                columns
+            };
+            for column in matched_columns(text, &words) {
+                if column >= shown {
+                    continue;
+                }
+                decorations.fill(
+                    &self.conn,
+                    prompt.window,
+                    Rectangle {
+                        x: TITLE_PADDING + column as i16 * char_width,
+                        y: y + line_height - LINE_PADDING,
+                        width: char_width as u16,
+                        height: 1,
+                    },
+                    foreground,
+                )?;
+            }
         }
 
         self.conn.flush()?;
@@ -506,12 +554,18 @@ impl WindowManager {
         };
         let (columns, visible) = (prompt.columns, prompt.output_lines);
 
+        let blinked =
+            prompt.output.is_none() && prompt.cursor_visible() != prompt.cursor_shown.get();
         let changed = prompt
             .output
             .as_mut()
             .is_some_and(|output| output.refresh(columns, visible));
 
-        if changed { self.draw_prompt() } else { Ok(()) }
+        if changed || blinked {
+            self.draw_prompt()
+        } else {
+            Ok(())
+        }
     }
 
     pub fn handle_prompt_key(&mut self, event: &KeyPressEvent) -> Result<()> {
@@ -546,6 +600,7 @@ impl WindowManager {
             return self.draw_prompt();
         }
 
+        prompt.blink = Instant::now();
         let cursor = prompt.cursor;
         let len = prompt.input.len();
 
@@ -624,7 +679,7 @@ impl WindowManager {
         write_history(command);
 
         if let Some(prompt) = self.prompt.as_mut() {
-            prompt.label = "$ ";
+            prompt.label = shell_label("out");
             prompt.input = command.chars().collect();
             prompt.cursor = 0;
             prompt.output = Some(output);
@@ -644,23 +699,36 @@ impl WindowManager {
             write_history(command);
         }
     }
+}
 
-    fn jump_to_client(&mut self, window: Window) -> Result<()> {
-        let Some((monitor_id, workspace_id)) = self.find_client(window) else {
-            return Ok(());
-        };
-        let other_monitor = monitor_id != self.monitors.current_monitor;
+fn shell_label(mode: &str) -> String {
+    let user = env::var("USER").unwrap_or_else(|_| "dxwm".to_string());
+    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
+    format!("{}@{}:{}$ ", user, host.trim(), mode)
+}
 
-        self.focus_monitor(monitor_id, false)?;
-        self.switch_to_workspace(workspace_id)?;
-        self.set_focused_client(window)?;
-        self.layout()?;
+fn digits(count: usize) -> usize {
+    count.to_string().len().max(3)
+}
 
-        if other_monitor {
-            self.warp_pointer_to_focus()?;
-        }
-        Ok(())
-    }
+fn fold(c: char) -> char {
+    c.to_lowercase().next().unwrap_or(c)
+}
+
+fn matched_columns(label: &str, words: &[Vec<char>]) -> Vec<usize> {
+    let label: Vec<char> = label.chars().map(fold).collect();
+
+    words
+        .iter()
+        .filter(|word| !word.is_empty() && word.len() <= label.len())
+        .filter_map(|word| {
+            label
+                .windows(word.len())
+                .position(|window| window == word.as_slice())
+                .map(|start| start..start + word.len())
+        })
+        .flatten()
+        .collect()
 }
 
 fn wrap(text: &str, columns: usize) -> Vec<String> {

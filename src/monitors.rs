@@ -6,10 +6,10 @@ use x11rb::protocol::randr::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::*;
 use x11rb::rust_connection::RustConnection;
 
+use crate::clients::Rect;
 use crate::wm::WindowManager;
 use crate::workspaces::WorkspaceManager;
 
-/// Area of the root window reported by RandR
 #[derive(Debug, Clone)]
 struct OutputGeometry {
     name: String,
@@ -20,7 +20,14 @@ struct OutputGeometry {
     primary: bool,
 }
 
-/// A screen area with its own independent set of workspaces
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Reserved {
+    pub left: u16,
+    pub right: u16,
+    pub top: u16,
+    pub bottom: u16,
+}
+
 #[derive(Debug, Clone)]
 pub struct Monitor {
     pub name: String,
@@ -29,6 +36,7 @@ pub struct Monitor {
     pub width: u16,
     pub height: u16,
     pub primary: bool,
+    pub reserved: Reserved,
     pub workspaces: WorkspaceManager,
 }
 
@@ -41,11 +49,24 @@ impl Monitor {
             width: output.width,
             height: output.height,
             primary: output.primary,
+            reserved: Reserved::default(),
             workspaces: WorkspaceManager::new(num_workspaces),
         }
     }
 
-    /// Check if a point (root coordinates) is inside the monitor
+    pub fn work_area(&self) -> Rect {
+        let r = self.reserved;
+        let width = self.width.saturating_sub(r.left + r.right).max(1);
+        let height = self.height.saturating_sub(r.top + r.bottom).max(1);
+
+        Rect {
+            x: self.x + r.left.min(self.width - width) as i16,
+            y: self.y + r.top.min(self.height - height) as i16,
+            width,
+            height,
+        }
+    }
+
     pub fn contains(&self, x: i16, y: i16) -> bool {
         let (x, y) = (x as i32, y as i32);
         x >= self.x as i32
@@ -55,11 +76,9 @@ impl Monitor {
     }
 }
 
-/// Result of reconciling the monitor list with the X server
 #[derive(Debug, Default)]
 pub struct MonitorChanges {
     pub added: Vec<String>,
-    /// Removed monitors, still holding their workspaces (and clients) to be migrated
     pub removed: Vec<Monitor>,
     pub resized: bool,
 }
@@ -70,8 +89,6 @@ impl MonitorChanges {
     }
 }
 
-/// Monitors sorted left to right. Outputs are enabled by the user (e.g. with
-/// xrandr), dxwm only follows what RandR reports
 #[derive(Debug, Clone)]
 pub struct MonitorManager {
     pub monitors: Vec<Monitor>,
@@ -92,7 +109,6 @@ impl MonitorManager {
             num_workspaces,
         };
 
-        // Start on the monitor under the pointer, falling back to the primary one
         let pointer = conn.query_pointer(root)?.reply()?;
         manager.current_monitor = manager
             .monitor_at(pointer.root_x, pointer.root_y)
@@ -101,8 +117,6 @@ impl MonitorManager {
         Ok(manager)
     }
 
-    /// Active RandR monitors (including `xrandr --setmonitor` ones), or the whole
-    /// root window when RandR 1.5 is not available
     fn query_outputs(conn: &RustConnection, root: Window) -> Result<Vec<OutputGeometry>> {
         let mut outputs = Vec::new();
 
@@ -132,7 +146,7 @@ impl MonitorManager {
             }
         }
 
-        // Mirrored outputs share the same area, keep only one of them
+        // Mirrors share the same area
         let mut seen = HashSet::new();
         outputs.retain(|o| seen.insert((o.x, o.y, o.width, o.height)));
 
@@ -165,8 +179,6 @@ impl MonitorManager {
         Ok(outputs)
     }
 
-    /// Re-read the outputs keeping the workspaces of the monitors that still exist
-    /// (matched by name). Removed monitors are returned so their clients can be migrated
     pub fn refresh(&mut self, conn: &RustConnection, root: Window) -> Result<MonitorChanges> {
         let outputs = Self::query_outputs(conn, root)?;
         let current_name = self.current().name.clone();
@@ -228,7 +240,6 @@ impl MonitorManager {
         self.monitors.len()
     }
 
-    /// Return the monitor that contains a point (root coordinates)
     pub fn monitor_at(&self, x: i16, y: i16) -> Option<usize> {
         self.monitors.iter().position(|m| m.contains(x, y))
     }
@@ -237,14 +248,12 @@ impl MonitorManager {
         self.monitors.iter().position(|m| m.primary).unwrap_or(0)
     }
 
-    /// Index of the monitor `step` positions away from the current one, wrapping around
     pub fn relative(&self, step: isize) -> usize {
         (self.current_monitor as isize + step).rem_euclid(self.count() as isize) as usize
     }
 }
 
 impl WindowManager {
-    /// Re-read the monitor layout from the X server and apply the changes
     pub fn refresh_monitors(&mut self) -> Result<()> {
         let changes = self.monitors.refresh(&self.conn, self.root)?;
 
@@ -269,7 +278,7 @@ impl WindowManager {
             messages.push(format!("+{}", name));
         }
 
-        self.layout_all_monitors()?;
+        self.update_struts()?;
         self.focus_current()?;
 
         if !messages.is_empty() {
@@ -279,7 +288,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Move every client of a removed monitor to the same workspace of `target`
     fn migrate_monitor_clients(&mut self, monitor: Monitor, target: usize) -> Result<()> {
         let was_visible_id = monitor.workspaces.current_workspace;
         let target_workspaces = &self.monitors.monitors[target].workspaces;
@@ -322,7 +330,6 @@ impl WindowManager {
         self.focus_monitor(self.monitors.relative(-1), true)
     }
 
-    /// Focus the monitor under a point (root coordinates), used by the mouse
     pub fn focus_monitor_at(&mut self, x: i16, y: i16) -> Result<()> {
         match self.monitors.monitor_at(x, y) {
             Some(monitor_id) => self.focus_monitor(monitor_id, false),
@@ -349,7 +356,6 @@ impl WindowManager {
         self.draw_alert(format!("[MON] {} ({})", monitor_id, name))
     }
 
-    /// Put the pointer on the focused client, or the center of the current monitor
     pub fn warp_pointer_to_focus(&mut self) -> Result<()> {
         let monitor = self.monitors.current();
 
@@ -369,17 +375,14 @@ impl WindowManager {
             y.saturating_add((height / 2) as i16),
         )?;
 
-        // The pointer now lies on a different window, that EnterNotify is ours
         self.ignore_pending_enters()?;
         self.conn.flush()?;
         Ok(())
     }
 
-    /// Move the pointer to the bottom right corner of the current monitor
     pub fn banish_pointer(&mut self) -> Result<()> {
         let monitor = self.monitors.current();
 
-        // Last pixel of the monitor, one more would land on the next one
         let x = monitor.x + monitor.width as i16 - 1;
         let y = monitor.y + monitor.height as i16 - 1;
 
@@ -397,7 +400,6 @@ impl WindowManager {
         self.move_focused_to_monitor(self.monitors.relative(-1))
     }
 
-    /// Move the focused client to the visible workspace of another monitor (focus follows it)
     pub fn move_focused_to_monitor(&mut self, target_id: usize) -> Result<()> {
         let source_id = self.monitors.current_monitor;
 
@@ -413,7 +415,6 @@ impl WindowManager {
             return Ok(());
         };
 
-        // Keep a floating client at the same place relative to its monitor
         if let Some(rect) = &mut client.floating {
             let (source, target) = (
                 &self.monitors.monitors[source_id],

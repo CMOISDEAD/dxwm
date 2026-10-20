@@ -34,7 +34,6 @@ impl Decorations {
 
         let gc = conn.generate_id()?;
         conn.create_gc(gc, root, &CreateGCAux::new().font(font))?;
-        // The GC keeps its own reference to the font
         conn.close_font(font)?;
 
         Ok(Self {
@@ -53,8 +52,6 @@ impl Decorations {
         self.char_width
     }
 
-    /// Draw text at `x`, vertically centered in a row of `height` pixels that
-    /// starts at `y`. `colors` are the foreground and the background
     pub fn draw_text(
         &self,
         conn: &RustConnection,
@@ -91,6 +88,18 @@ impl Decorations {
         conn.poly_fill_rectangle(window, self.gc, &[rectangle])?;
         Ok(())
     }
+
+    pub fn outline(
+        &self,
+        conn: &RustConnection,
+        window: Window,
+        rectangle: Rectangle,
+        color: u32,
+    ) -> Result<()> {
+        conn.change_gc(self.gc, &ChangeGCAux::new().foreground(color))?;
+        conn.poly_rectangle(window, self.gc, &[rectangle])?;
+        Ok(())
+    }
 }
 
 impl WindowManager {
@@ -111,7 +120,6 @@ impl WindowManager {
             &CreateWindowAux::new()
                 .background_pixel(TITLE_BG_UNFOCUSED)
                 .border_pixel(BORDER_UNFOCUSED)
-                // Map requests and unmaps of the client now go through its frame
                 .event_mask(
                     EventMask::SUBSTRUCTURE_REDIRECT
                         | EventMask::SUBSTRUCTURE_NOTIFY
@@ -122,7 +130,7 @@ impl WindowManager {
 
         self.conn
             .reparent_window(window, frame, 0, TITLE_HEIGHT as i16)?;
-        // If dxwm dies, the client goes back to the root instead of being destroyed
+        // If dxwm dies or restarts the client goes back to the root
         self.conn.change_save_set(SetMode::INSERT, window)?;
 
         Ok(frame)
@@ -130,7 +138,7 @@ impl WindowManager {
 
     pub fn destroy_frame(&mut self, client: &Client, destroyed: bool) -> Result<()> {
         if !destroyed {
-            // The client may be already gone (destroying a window unmaps it first)
+            // An UnmapNotify may come from the client being destroyed
             self.conn
                 .reparent_window(client.window, self.root, client.x, client.y)?
                 .ignore_error();
@@ -161,7 +169,6 @@ impl WindowManager {
             return Ok(());
         }
 
-        // Fills the title bar with the new background, the client covers the rest
         self.conn.clear_area(false, client.frame, 0, 0, 0, 0)?;
 
         let decorations = &self.decorations;
@@ -179,7 +186,6 @@ impl WindowManager {
         )
     }
 
-    /// _NET_WM_NAME, or WM_NAME for clients that don't set it
     pub fn read_title(&self, window: Window) -> Result<String> {
         for (property, kind) in [
             (self.atoms.net_wm_name, self.atoms.utf8_string),
@@ -245,7 +251,6 @@ pub fn encode_text(title: &str, max_chars: usize) -> Vec<Char2b> {
     chars
         .into_iter()
         .map(|c| {
-            // Outside the BMP there's no core font glyph
             let code = u16::try_from(c as u32).unwrap_or(b'?' as u16);
             let [byte1, byte2] = code.to_be_bytes();
             Char2b { byte1, byte2 }

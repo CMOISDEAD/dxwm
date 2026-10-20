@@ -7,24 +7,19 @@ use crate::wm::WindowManager;
 
 #[derive(Clone, Copy)]
 pub enum Shot {
-    /// The current monitor
     Monitor,
-    /// An area or window selected with the mouse (Escape cancels)
     Area,
-    /// The focused client, with its decoration
     Window,
 }
 
-/// A screenshot being taken by a background process
 pub struct Screenshot {
     child: Child,
     label: &'static str,
 }
 
 impl WindowManager {
-    /// Save a screenshot (maim) to `SCREENSHOT_DIR` and copy it to the clipboard
-    /// (xclip). It runs in the background: the WM must never wait for it, xclip
-    /// stays alive to serve the clipboard and an area selection can take long
+    /// In the background: xclip stays alive serving the clipboard and selecting
+    /// an area can take long
     pub fn screenshot(&mut self, shot: Shot) -> Result<()> {
         if self.screenshot.is_some() {
             return Ok(());
@@ -45,7 +40,6 @@ impl WindowManager {
             }
         };
 
-        // -u hides the pointer
         let script = format!(
             r#"dir="{SCREENSHOT_DIR}"; mkdir -p "$dir" &&
             file="$dir/$(date +%Y-%m-%d_%H-%M-%S).png" &&
@@ -53,7 +47,6 @@ impl WindowManager {
             xclip -selection clipboard -t image/png -i "$file""#
         );
 
-        // Alerts shouldn't appear in the picture
         self.clear_alerts()?;
 
         let child = Command::new("sh")
@@ -68,7 +61,6 @@ impl WindowManager {
         Ok(())
     }
 
-    /// Called from the main loop: show an alert once the screenshot is done
     pub fn poll_screenshot(&mut self) -> Result<()> {
         let Some(screenshot) = &mut self.screenshot else {
             return Ok(());

@@ -2,11 +2,10 @@ pub mod keybinds;
 
 pub const NUM_WORKSPACES: u8 = 9;
 
-pub const BORDER_WIDTH: u32 = 3;
-/// Space between the clients and the monitor edges, also used to place the alerts
+pub const BORDER_WIDTH: u32 = 1;
 pub const MARGIN: u32 = 10;
 
-/// Width of a new tiled client as a fraction of the monitor, 0.5 fits two side by side
+/// Fractions of the monitor width, 0.5 fits two columns side by side
 pub const DEFAULT_COLUMN_WIDTH: f32 = 0.5;
 pub const COLUMN_WIDTH_PRESETS: [f32; 3] = [1.0 / 3.0, 0.5, 2.0 / 3.0];
 pub const COLUMN_WIDTH_STEP: f32 = 0.1;
@@ -16,17 +15,19 @@ pub const BACKGROUND: u32 = 0xD7D5D1;
 pub const FOREGROUND: u32 = 0x222222;
 pub const BORDER_FOCUSED: u32 = 0xB8B6B2;
 pub const BORDER_UNFOCUSED: u32 = 0x5C5C5C;
-pub const SELECTED: u32 = 0x222222;
+pub const SELECTED_BG: u32 = 0x222222;
+pub const SELECTED_FG: u32 = 0xD7D5D1;
+pub const DIMMED_FG: u32 = 0x77756F;
 
-/// Title bar on top of each client, inside the border. 0 disables it
+/// 0 disables the title bar
 pub const TITLE_HEIGHT: u32 = 20;
 pub const TITLE_BG_FOCUSED: u32 = BORDER_FOCUSED;
 pub const TITLE_BG_UNFOCUSED: u32 = BORDER_UNFOCUSED;
 pub const TITLE_FG_FOCUSED: u32 = 0x222222;
 pub const TITLE_FG_UNFOCUSED: u32 = 0xD7D5D1;
 pub const TITLE_PADDING: i16 = 6;
-/// X core font (XLFD) for the titles, "fixed" is used if it can't be opened.
-/// An iso10646 font is needed to show non latin-1 characters
+/// X core font (XLFD), "fixed" if it can't be opened. Only iso10646 fonts show
+/// non latin-1 characters
 pub const TITLE_FONT: &str = "-misc-fixed-medium-r-normal--13-*-*-*-*-*-iso10646-1";
 
 /// 580 fits 80 columns of TITLE_FONT
@@ -35,7 +36,15 @@ pub const PROMPT_LINES: usize = 10;
 pub const PROMPT_OUTPUT_LINES: usize = 30;
 pub const PROMPT_HISTORY: usize = 100;
 
-/// Where screenshots are saved, expanded by the shell
+pub const ALERT_LINES: usize = 4;
+pub const ALERT_HISTORY: u64 = 60;
+
+/// Modeline drawn under every window, only seen where the desktop is
+pub const SHOW_BAR: bool = false;
+/// Pixels a whole monitor takes in the minimap of the workspaces
+pub const MINIMAP_VIEW: i32 = 24;
+
+/// Expanded by the shell
 pub const SCREENSHOT_DIR: &str = "$HOME/Pictures/Screenshots";
 
 pub const TERMINAL_APP: &str = "alacritty";

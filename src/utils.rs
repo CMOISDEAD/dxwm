@@ -1,7 +1,7 @@
 use std::env::home_dir;
+use std::fs;
 use std::process::{Command, Stdio};
 
-/// Run `~/.local/share/dxwm/autostart.sh` in the background, if it exists
 pub fn run_autostart() {
     let Some(mut path) = home_dir() else {
         eprintln!("Home directory not found, skipping autostart");
@@ -33,9 +33,8 @@ pub fn detached(command: &str) -> Command {
     cmd
 }
 
-/// Run a shell command and wait for its trimmed stdout (empty on failure).
-/// Only for quick commands: it blocks the WM, forever if the command leaves a
-/// background process holding its stdout (like xclip)
+/// Blocks the WM: only for quick commands, and never for ones that leave a
+/// background process holding stdout (like xclip)
 pub fn command_output(cmd: &str) -> String {
     Command::new("sh")
         .arg("-c")
@@ -62,5 +61,41 @@ pub fn mic_status() -> String {
         "[MIC] MUTED".to_string()
     } else {
         "[MIC] LIVE".to_string()
+    }
+}
+
+pub fn battery() -> Option<(&'static str, String)> {
+    let read = |file: &str| {
+        fs::read_to_string(format!("/sys/class/power_supply/BAT0/{}", file))
+            .ok()
+            .map(|s| s.trim().to_string())
+    };
+
+    let capacity = read("capacity")?;
+    let label = match read("status").as_deref() {
+        Some("Charging") => "CHR",
+        Some("Discharging") => "BAT",
+        Some("Full") => "FULL",
+        Some("Not charging") => "AC",
+        _ => "UNK",
+    };
+
+    Some((label, capacity))
+}
+
+pub fn battery_status() -> String {
+    match battery() {
+        Some((label, capacity)) => format!("[{}] {}%", label, capacity),
+        None => "[BAT] none".to_string(),
+    }
+}
+
+pub fn local_time() -> libc::tm {
+    // SAFETY: localtime_r only writes to the tm we own
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm
     }
 }
