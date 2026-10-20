@@ -10,7 +10,7 @@ use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
 
 /// Frame geometry in root coordinates, border included
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Rect {
     pub x: i16,
     pub y: i16,
@@ -18,15 +18,29 @@ pub struct Rect {
     pub height: u16,
 }
 
+impl Rect {
+    pub fn contains(&self, x: i16, y: i16) -> bool {
+        let (x, y) = (x as i32, y as i32);
+        x >= self.x as i32
+            && x < self.x as i32 + self.width as i32
+            && y >= self.y as i32
+            && y < self.y as i32 + self.height as i32
+    }
+
+    pub fn center(&self) -> (i16, i16) {
+        (
+            self.x.saturating_add((self.width / 2) as i16),
+            self.y.saturating_add((self.height / 2) as i16),
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Client {
     pub window: Window,
     pub frame: Window,
     pub title: String,
-    pub x: i16,
-    pub y: i16,
-    pub width: u16,
-    pub height: u16,
+    pub geometry: Rect,
     pub fullscreen: bool,
     pub floating: Option<Rect>,
     /// Fraction of the monitor width while tiled
@@ -42,10 +56,7 @@ impl Client {
             window,
             frame,
             title,
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
+            geometry: Rect::default(),
             fullscreen: false,
             floating,
             column_width: DEFAULT_COLUMN_WIDTH,

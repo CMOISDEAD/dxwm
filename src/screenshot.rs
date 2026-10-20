@@ -27,7 +27,7 @@ impl WindowManager {
 
         let (label, target) = match shot {
             Shot::Monitor => {
-                let m = self.monitors.current();
+                let m = self.monitors.current().geometry;
                 let geometry = format!("-g {}x{}+{}+{}", m.width, m.height, m.x, m.y);
                 ("MONITOR", geometry)
             }

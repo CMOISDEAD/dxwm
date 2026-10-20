@@ -68,7 +68,7 @@ impl WindowManager {
     }
 
     fn centered_rect(&self, width: u32, height: u32) -> Rect {
-        let monitor = self.monitors.current();
+        let monitor = self.monitors.current().geometry;
         let width = width.min(monitor.width as u32) as u16;
         let height = height.min(monitor.height as u32) as u16;
 
@@ -137,7 +137,7 @@ impl WindowManager {
             return Ok(());
         };
 
-        let monitor = self.monitors.current();
+        let monitor = self.monitors.current().geometry;
         let rect = self.centered_rect(monitor.width as u32 * 2 / 3, monitor.height as u32 * 2 / 3);
 
         if let Some(client) = self.client_mut(window) {
@@ -199,10 +199,13 @@ impl WindowManager {
             event: window,
             window,
             above_sibling: x11rb::NONE,
-            x: client.x + border,
-            y: client.y + border + title,
-            width: client.width.saturating_sub(2 * border as u16),
-            height: client.height.saturating_sub((2 * border + title) as u16),
+            x: client.geometry.x + border,
+            y: client.geometry.y + border + title,
+            width: client.geometry.width.saturating_sub(2 * border as u16),
+            height: client
+                .geometry
+                .height
+                .saturating_sub((2 * border + title) as u16),
             border_width: 0,
             override_redirect: false,
         };

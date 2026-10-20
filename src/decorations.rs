@@ -140,7 +140,12 @@ impl WindowManager {
         if !destroyed {
             // An UnmapNotify may come from the client being destroyed
             self.conn
-                .reparent_window(client.window, self.root, client.x, client.y)?
+                .reparent_window(
+                    client.window,
+                    self.root,
+                    client.geometry.x,
+                    client.geometry.y,
+                )?
                 .ignore_error();
             self.conn
                 .change_save_set(SetMode::DELETE, client.window)?
@@ -172,7 +177,7 @@ impl WindowManager {
         self.conn.clear_area(false, client.frame, 0, 0, 0, 0)?;
 
         let decorations = &self.decorations;
-        let inner_width = client.width as i16 - 2 * BORDER_WIDTH as i16;
+        let inner_width = client.geometry.width as i16 - 2 * BORDER_WIDTH as i16;
         let max_chars = ((inner_width - 2 * TITLE_PADDING) / decorations.char_width).max(0);
         let text = encode_text(&client.title, max_chars as usize);
 

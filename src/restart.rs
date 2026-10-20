@@ -42,12 +42,7 @@ impl WindowManager {
         for (monitor_id, monitor) in monitors.iter().enumerate() {
             for workspace in &monitor.workspaces.workspaces {
                 for (position, client) in workspace.clients.iter().enumerate() {
-                    let rect = client.floating.unwrap_or(Rect {
-                        x: 0,
-                        y: 0,
-                        width: 0,
-                        height: 0,
-                    });
+                    let rect = client.floating.unwrap_or_default();
                     let state: [u32; CLIENT_STATE_LEN] = [
                         monitor_id as u32,
                         workspace.id as u32,

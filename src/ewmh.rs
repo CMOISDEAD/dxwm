@@ -223,8 +223,9 @@ impl WindowManager {
             let span = |i: usize| (strut[i] as i64, strut[i + 1] as i64);
 
             for (monitor, reserved) in self.monitors.monitors.iter().zip(&mut reserved) {
-                let (x, y) = (monitor.x as i64, monitor.y as i64);
-                let (width, height) = (monitor.width as i64, monitor.height as i64);
+                let g = monitor.geometry;
+                let (x, y) = (g.x as i64, g.y as i64);
+                let (width, height) = (g.width as i64, g.height as i64);
                 let overlaps = |(start, end): (i64, i64), from: i64, size: i64| {
                     start < from + size && end >= from
                 };

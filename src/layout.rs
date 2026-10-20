@@ -3,7 +3,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::shape::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::*;
 
-use crate::clients::Client;
+use crate::clients::{Client, Rect};
 use crate::config::{
     BORDER_WIDTH, COLUMN_WIDTH_PRESETS, DEFAULT_COLUMN_WIDTH, MARGIN, MIN_COLUMN_WIDTH,
     TITLE_HEIGHT,
@@ -68,8 +68,9 @@ impl WindowManager {
             return Ok(());
         };
 
-        let (mon_x, mon_y) = (monitor.x as i32, monitor.y as i32);
-        let (mon_width, mon_height) = (monitor.width as i32, monitor.height as i32);
+        let g = monitor.geometry;
+        let (mon_x, mon_y) = (g.x as i32, g.y as i32);
+        let (mon_width, mon_height) = (g.width as i32, g.height as i32);
         let area = monitor.work_area();
         let (area_x, area_width) = (area.x as i32, area.width as i32);
 
@@ -306,10 +307,12 @@ impl WindowManager {
         }
 
         if let Some(client) = self.client_mut(window) {
-            client.x = x as i16;
-            client.y = y as i16;
-            client.width = width as u16;
-            client.height = height as u16;
+            client.geometry = Rect {
+                x: x as i16,
+                y: y as i16,
+                width: width as u16,
+                height: height as u16,
+            };
         }
 
         Ok(())

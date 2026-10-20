@@ -312,7 +312,7 @@ impl WindowManager {
             return self.draw_alert("[PROMPT] keyboard in use".to_string());
         }
 
-        let monitor = self.monitors.current();
+        let monitor = self.monitors.current().geometry;
         let space = monitor
             .width
             .saturating_sub(2 * (MARGIN + BORDER_WIDTH) as u16);

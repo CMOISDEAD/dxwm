@@ -13,10 +13,7 @@ use crate::workspaces::WorkspaceManager;
 #[derive(Debug, Clone)]
 struct OutputGeometry {
     name: String,
-    x: i16,
-    y: i16,
-    width: u16,
-    height: u16,
+    geometry: Rect,
     primary: bool,
 }
 
@@ -31,10 +28,7 @@ pub struct Reserved {
 #[derive(Debug, Clone)]
 pub struct Monitor {
     pub name: String,
-    pub x: i16,
-    pub y: i16,
-    pub width: u16,
-    pub height: u16,
+    pub geometry: Rect,
     pub primary: bool,
     pub reserved: Reserved,
     pub workspaces: WorkspaceManager,
@@ -44,10 +38,7 @@ impl Monitor {
     fn new(output: OutputGeometry, num_workspaces: u8) -> Self {
         Self {
             name: output.name,
-            x: output.x,
-            y: output.y,
-            width: output.width,
-            height: output.height,
+            geometry: output.geometry,
             primary: output.primary,
             reserved: Reserved::default(),
             workspaces: WorkspaceManager::new(num_workspaces),
@@ -55,24 +46,16 @@ impl Monitor {
     }
 
     pub fn work_area(&self) -> Rect {
-        let r = self.reserved;
-        let width = self.width.saturating_sub(r.left + r.right).max(1);
-        let height = self.height.saturating_sub(r.top + r.bottom).max(1);
+        let (g, r) = (self.geometry, self.reserved);
+        let width = g.width.saturating_sub(r.left + r.right).max(1);
+        let height = g.height.saturating_sub(r.top + r.bottom).max(1);
 
         Rect {
-            x: self.x + r.left.min(self.width - width) as i16,
-            y: self.y + r.top.min(self.height - height) as i16,
+            x: g.x + r.left.min(g.width - width) as i16,
+            y: g.y + r.top.min(g.height - height) as i16,
             width,
             height,
         }
-    }
-
-    pub fn contains(&self, x: i16, y: i16) -> bool {
-        let (x, y) = (x as i32, y as i32);
-        x >= self.x as i32
-            && x < self.x as i32 + self.width as i32
-            && y >= self.y as i32
-            && y < self.y as i32 + self.height as i32
     }
 }
 
@@ -136,10 +119,12 @@ impl MonitorManager {
 
                     outputs.push(OutputGeometry {
                         name: String::from_utf8_lossy(&name).to_string(),
-                        x: monitor.x,
-                        y: monitor.y,
-                        width: monitor.width,
-                        height: monitor.height,
+                        geometry: Rect {
+                            x: monitor.x,
+                            y: monitor.y,
+                            width: monitor.width,
+                            height: monitor.height,
+                        },
                         primary: monitor.primary,
                     });
                 }
@@ -148,11 +133,15 @@ impl MonitorManager {
 
         // Mirrors share the same area
         let mut seen = HashSet::new();
-        outputs.retain(|o| seen.insert((o.x, o.y, o.width, o.height)));
+        outputs.retain(|o| {
+            let g = o.geometry;
+            seen.insert((g.x, g.y, g.width, g.height))
+        });
 
         // An output covering others is a mirror with a bigger resolution or an area
         // split with `xrandr --setmonitor`, keep the smaller ones
         let covers = |a: &OutputGeometry, b: &OutputGeometry| {
+            let (a, b) = (a.geometry, b.geometry);
             a.x <= b.x
                 && a.y <= b.y
                 && a.x as i32 + a.width as i32 >= b.x as i32 + b.width as i32
@@ -166,15 +155,17 @@ impl MonitorManager {
 
             outputs.push(OutputGeometry {
                 name: "default".to_string(),
-                x: 0,
-                y: 0,
-                width: geometry.width,
-                height: geometry.height,
+                geometry: Rect {
+                    x: 0,
+                    y: 0,
+                    width: geometry.width,
+                    height: geometry.height,
+                },
                 primary: true,
             });
         }
 
-        outputs.sort_by_key(|o| (o.x, o.y));
+        outputs.sort_by_key(|o| (o.geometry.x, o.geometry.y));
 
         Ok(outputs)
     }
@@ -191,16 +182,11 @@ impl MonitorManager {
                 Some(pos) => {
                     let mut monitor = old_monitors.remove(pos);
 
-                    if (monitor.x, monitor.y, monitor.width, monitor.height)
-                        != (output.x, output.y, output.width, output.height)
-                    {
+                    if monitor.geometry != output.geometry {
                         changes.resized = true;
                     }
 
-                    monitor.x = output.x;
-                    monitor.y = output.y;
-                    monitor.width = output.width;
-                    monitor.height = output.height;
+                    monitor.geometry = output.geometry;
                     monitor.primary = output.primary;
                     monitor
                 }
@@ -241,7 +227,7 @@ impl MonitorManager {
     }
 
     pub fn monitor_at(&self, x: i16, y: i16) -> Option<usize> {
-        self.monitors.iter().position(|m| m.contains(x, y))
+        self.monitors.iter().position(|m| m.geometry.contains(x, y))
     }
 
     pub fn primary_index(&self) -> usize {
@@ -357,23 +343,13 @@ impl WindowManager {
     }
 
     pub fn warp_pointer_to_focus(&mut self) -> Result<()> {
-        let monitor = self.monitors.current();
-
-        let (x, y, width, height) = match self.focused_client().and_then(|w| self.client(w)) {
-            Some(client) => (client.x, client.y, client.width, client.height),
-            None => (monitor.x, monitor.y, monitor.width, monitor.height),
+        let (x, y) = match self.focused_client().and_then(|w| self.client(w)) {
+            Some(client) => client.geometry.center(),
+            None => self.monitors.current().geometry.center(),
         };
 
-        self.conn.warp_pointer(
-            x11rb::NONE,
-            self.root,
-            0,
-            0,
-            0,
-            0,
-            x.saturating_add((width / 2) as i16),
-            y.saturating_add((height / 2) as i16),
-        )?;
+        self.conn
+            .warp_pointer(x11rb::NONE, self.root, 0, 0, 0, 0, x, y)?;
 
         self.ignore_pending_enters()?;
         self.conn.flush()?;
@@ -381,10 +357,9 @@ impl WindowManager {
     }
 
     pub fn banish_pointer(&mut self) -> Result<()> {
-        let monitor = self.monitors.current();
-
-        let x = monitor.x + monitor.width as i16 - 1;
-        let y = monitor.y + monitor.height as i16 - 1;
+        let g = self.monitors.current().geometry;
+        let x = g.x + g.width as i16 - 1;
+        let y = g.y + g.height as i16 - 1;
 
         self.conn
             .warp_pointer(x11rb::NONE, self.root, 0, 0, 0, 0, x, y)?;
@@ -417,8 +392,8 @@ impl WindowManager {
 
         if let Some(rect) = &mut client.floating {
             let (source, target) = (
-                &self.monitors.monitors[source_id],
-                &self.monitors.monitors[target_id],
+                self.monitors.monitors[source_id].geometry,
+                self.monitors.monitors[target_id].geometry,
             );
             rect.x += target.x - source.x;
             rect.y += target.y - source.y;
