@@ -7,13 +7,8 @@ pub type Action = fn(&mut WindowManager) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone)]
 pub enum KeyAction {
-    Spawn(String),
     EnterMode(String),
     ExitMode,
-    CloseWindow,
-    FocusNext,
-    FocusPrev,
-    Quit,
     SwitchWorkspace(u8),
     MoveToWorkspace(u8),
     Custom(Action),
