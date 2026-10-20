@@ -14,16 +14,23 @@ pub fn run_autostart() {
         return;
     }
 
-    match Command::new("sh")
-        .arg(&path)
+    match detached(&format!("exec sh '{}'", path.display()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
+        .status()
     {
         Ok(_) => println!("Autostart launched"),
         Err(err) => eprintln!("Error running autostart: {}", err),
     }
+}
+
+/// The intermediate shell exits right away, so the command ends up as a child of
+/// init and the WM never has to reap it. Wait for it with `status()`
+pub fn detached(command: &str) -> Command {
+    let mut cmd = Command::new("sh");
+    cmd.args(["-c", "sh -c \"$1\" &", "sh", command]);
+    cmd
 }
 
 /// Run a shell command and wait for its trimmed stdout (empty on failure).

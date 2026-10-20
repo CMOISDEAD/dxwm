@@ -1,5 +1,5 @@
 use std::fs;
-use std::process::{Command, exit};
+use std::process::exit;
 
 use anyhow::Result;
 use x11rb::connection::Connection;
@@ -10,7 +10,7 @@ use crate::keybindings::KeyAction;
 use crate::keyboard::{self, normalize_modifiers};
 use crate::keysyms::*;
 use crate::screenshot::Shot;
-use crate::utils::{command_output, mic_status, volume_status};
+use crate::utils::{command_output, detached, mic_status, volume_status};
 use crate::wm::WindowManager;
 
 impl WindowManager {
@@ -324,7 +324,7 @@ impl WindowManager {
         match action {
             KeyAction::Spawn(cmd) => {
                 println!("Spawning: {}", cmd);
-                Command::new("sh").arg("-c").arg(&cmd).spawn()?;
+                detached(&cmd).status()?;
             }
             KeyAction::EnterMode(mode) => {
                 self.draw_alert(format!("[MODE] {}", mode.to_ascii_uppercase()))?;

@@ -20,6 +20,7 @@ use crate::config::{
 use crate::decorations::encode_text;
 use crate::keyboard::keysym_to_char;
 use crate::keysyms::*;
+use crate::utils::detached;
 use crate::wm::WindowManager;
 
 const LINE_PADDING: i16 = 3;
@@ -634,7 +635,7 @@ impl WindowManager {
     pub fn run_command(&mut self, command: &str, remember: bool) {
         println!("Spawning: {}", command);
 
-        if let Err(err) = Command::new("sh").arg("-c").arg(command).spawn() {
+        if let Err(err) = detached(command).status() {
             eprintln!("Error running {}: {}", command, err);
             return;
         }
