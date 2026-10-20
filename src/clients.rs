@@ -338,17 +338,9 @@ impl WindowManager {
 
     fn focus_step(&mut self, step: isize) -> Result<()> {
         let workspace = self.workspace();
-        let Some(current) = workspace.focused_client.and_then(|w| workspace.position(w)) else {
+        let Some((_, target)) = workspace.step_from_focused(step) else {
             return Ok(());
         };
-
-        let target = current
-            .saturating_add_signed(step)
-            .min(workspace.clients.len() - 1);
-
-        if target == current {
-            return Ok(());
-        }
 
         let window = workspace.clients[target].window;
         self.set_focused_client(window)?;
@@ -365,18 +357,9 @@ impl WindowManager {
 
     fn swap_step(&mut self, step: isize) -> Result<()> {
         let workspace = self.workspace_mut();
-
-        let Some(current) = workspace.focused_client.and_then(|w| workspace.position(w)) else {
+        let Some((current, target)) = workspace.step_from_focused(step) else {
             return Ok(());
         };
-
-        let target = current
-            .saturating_add_signed(step)
-            .min(workspace.clients.len() - 1);
-
-        if target == current {
-            return Ok(());
-        }
 
         workspace.clients.swap(current, target);
         self.layout()

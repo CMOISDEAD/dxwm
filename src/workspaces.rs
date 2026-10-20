@@ -31,6 +31,16 @@ impl Workspace {
         self.clients.iter().position(|c| c.window == window)
     }
 
+    /// Positions of the focused client and of the one `step` away from it, clamped
+    /// to the ends. None if there is nowhere to go
+    pub fn step_from_focused(&self, step: isize) -> Option<(usize, usize)> {
+        let current = self.focused_client.and_then(|w| self.position(w))?;
+        let target = current
+            .saturating_add_signed(step)
+            .min(self.clients.len() - 1);
+        (target != current).then_some((current, target))
+    }
+
     pub fn get(&self, window: Window) -> Option<&Client> {
         self.clients.iter().find(|c| c.window == window)
     }
