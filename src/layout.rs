@@ -3,13 +3,38 @@ use x11rb::connection::Connection;
 use x11rb::protocol::shape::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::*;
 
-use crate::clients::{Client, Rect};
+use crate::clients::Client;
 use crate::config::{
     BORDER_WIDTH, COLUMN_WIDTH_PRESETS, DEFAULT_COLUMN_WIDTH, MARGIN, MIN_COLUMN_WIDTH,
     TITLE_HEIGHT,
 };
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
+
+/// Frame geometry in root coordinates, border included
+struct Placement {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    /// Border and title bar, fullscreen clients have none
+    decorated: bool,
+    /// Horizontal range (root coordinates) of the frame to show
+    clip: Option<(i32, i32)>,
+}
+
+impl Placement {
+    fn framed(x: i32, y: i32, width: i32, height: i32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            decorated: true,
+            clip: None,
+        }
+    }
+}
 
 pub fn strip(workspace: &Workspace, width: i32) -> Vec<(Window, i32, i32)> {
     let margin = MARGIN as i32;
@@ -78,10 +103,38 @@ impl WindowManager {
         }
         scroll = scroll.clamp(0, (end - view).max(0));
 
-        let clients: Vec<(Window, Window, bool, Option<Rect>)> = workspace
+        let placements: Vec<(Window, Window, Placement)> = workspace
             .clients
             .iter()
-            .map(|c| (c.window, c.frame, c.fullscreen, c.floating))
+            .filter_map(|client| {
+                let placement = if client.fullscreen {
+                    Placement {
+                        decorated: false,
+                        ..Placement::framed(mon_x, mon_y, mon_width, mon_height)
+                    }
+                } else if let Some(rect) = client.floating {
+                    let width = (rect.width as i32).min(mon_width);
+                    let height = (rect.height as i32).min(mon_height);
+                    let x = (rect.x as i32).clamp(mon_x, mon_x + mon_width - width);
+                    let y = (rect.y as i32).clamp(mon_y, mon_y + mon_height - height);
+                    Placement::framed(x, y, width, height)
+                } else {
+                    let &(_, start, width) = columns.iter().find(|c| c.0 == client.window)?;
+                    let x = area_x + margin + start - scroll;
+                    let visible = (x.max(area_x), (x + width).min(area_x + area_width));
+
+                    if visible.0 >= visible.1 {
+                        // Monitors never have negative coordinates, so this is outside all of them
+                        Placement::framed(-2 * mon_width, y, width, height)
+                    } else {
+                        Placement {
+                            clip: (visible != (x, x + width)).then_some(visible),
+                            ..Placement::framed(x, y, width, height)
+                        }
+                    }
+                };
+                Some((client.window, client.frame, placement))
+            })
             .collect();
 
         self.monitors.monitors[monitor_id]
@@ -89,32 +142,13 @@ impl WindowManager {
             .current_mut()
             .scroll = scroll;
 
-        for (window, frame, fullscreen, floating) in clients {
-            if fullscreen {
-                self.configure_client(window, mon_x, mon_y, mon_width, mon_height, false, None)?;
+        for (window, frame, placement) in placements {
+            self.configure_client(window, frame, &placement)?;
+            if !placement.decorated {
                 self.conn.configure_window(
                     frame,
                     &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
                 )?;
-            } else if let Some(rect) = floating {
-                let width = (rect.width as i32).min(mon_width);
-                let height = (rect.height as i32).min(mon_height);
-                let x = (rect.x as i32).clamp(mon_x, mon_x + mon_width - width);
-                let y = (rect.y as i32).clamp(mon_y, mon_y + mon_height - height);
-
-                self.configure_client(window, x, y, width, height, true, None)?;
-            } else if let Some(&(_, start, width)) = columns.iter().find(|c| c.0 == window) {
-                let x = area_x + margin + start - scroll;
-                let visible = (x.max(area_x), (x + width).min(area_x + area_width));
-
-                if visible.0 >= visible.1 {
-                    // Monitors never have negative coordinates, so this is outside all of them
-                    self.configure_client(window, -2 * mon_width, y, width, height, true, None)?;
-                } else if visible == (x, x + width) {
-                    self.configure_client(window, x, y, width, height, true, None)?;
-                } else {
-                    self.configure_client(window, x, y, width, height, true, Some(visible))?;
-                }
             }
         }
 
@@ -194,22 +228,20 @@ impl WindowManager {
         Ok(())
     }
 
-    /// `width` and `height` include the border. `clip` is the horizontal range
-    /// (root coordinates) of the frame to show
-    #[allow(clippy::too_many_arguments)]
     fn configure_client(
         &mut self,
         window: Window,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        decorated: bool,
-        clip: Option<(i32, i32)>,
+        frame: Window,
+        placement: &Placement,
     ) -> Result<()> {
-        let Some(frame) = self.client(window).map(|c| c.frame) else {
-            return Ok(());
-        };
+        let Placement {
+            x,
+            y,
+            width,
+            height,
+            decorated,
+            clip,
+        } = *placement;
 
         let (border, title) = if decorated {
             (BORDER_WIDTH, TITLE_HEIGHT)
