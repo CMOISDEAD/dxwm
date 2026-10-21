@@ -262,3 +262,26 @@ pub fn encode_text(title: &str, max_chars: usize) -> Vec<Char2b> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode(text: &[Char2b]) -> String {
+        text.iter()
+            .map(|c| char::from_u32(u16::from_be_bytes([c.byte1, c.byte2]) as u32).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn titles_that_dont_fit_end_with_dots() {
+        assert_eq!(decode(&encode_text("hello world", 8)), "hello...");
+        assert_eq!(decode(&encode_text("hello", 2)), "..");
+        assert_eq!(decode(&encode_text("hello", 5)), "hello");
+    }
+
+    #[test]
+    fn characters_outside_the_bmp_become_question_marks() {
+        assert_eq!(decode(&encode_text("añ😀", 10)), "añ?");
+    }
+}

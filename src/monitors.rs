@@ -420,3 +420,54 @@ impl WindowManager {
         self.draw_alert(format!("[MVMON] {} ({})", target_id, name))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn monitor(reserved: Reserved) -> Monitor {
+        Monitor {
+            name: "test".to_string(),
+            geometry: Rect {
+                x: 1920,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            primary: false,
+            reserved,
+            workspaces: WorkspaceManager::new(1),
+        }
+    }
+
+    #[test]
+    fn work_area_subtracts_the_reserved_edges() {
+        let area = monitor(Reserved {
+            left: 10,
+            top: 30,
+            ..Reserved::default()
+        })
+        .work_area();
+
+        assert_eq!(
+            area,
+            Rect {
+                x: 1930,
+                y: 30,
+                width: 1910,
+                height: 1050
+            }
+        );
+    }
+
+    #[test]
+    fn work_area_is_never_empty() {
+        let area = monitor(Reserved {
+            left: 2000,
+            ..Reserved::default()
+        })
+        .work_area();
+
+        assert_eq!((area.x, area.width), (3839, 1));
+    }
+}

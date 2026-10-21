@@ -51,7 +51,7 @@ pub struct Client {
 }
 
 impl Client {
-    fn new(window: Window, frame: Window, title: String, floating: Option<Rect>) -> Self {
+    pub fn new(window: Window, frame: Window, title: String, floating: Option<Rect>) -> Self {
         Self {
             window,
             frame,

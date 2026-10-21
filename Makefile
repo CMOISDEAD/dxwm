@@ -4,10 +4,13 @@
 # @file
 # @version 0.1
 
-.PHONY: build install run xephyr run-xephyr clean
+.PHONY: build test install run xephyr run-xephyr clean
 
 build:
 	cargo build --release
+
+test:
+	cargo test
 
 install:
 	cargo install --path .

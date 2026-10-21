@@ -816,3 +816,34 @@ fn write_history(command: &str) {
         eprintln!("Error writing {:?}: {}", path, err);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(text: &str) -> Vec<Vec<char>> {
+        text.split_whitespace()
+            .map(|word| word.chars().map(fold).collect())
+            .collect()
+    }
+
+    #[test]
+    fn matches_every_word_ignoring_case() {
+        assert_eq!(
+            matched_columns("FireFox", &words("fox fi")),
+            vec![4, 5, 6, 0, 1]
+        );
+        assert!(matched_columns("firefox", &words("chrome")).is_empty());
+    }
+
+    #[test]
+    fn wrap_expands_tabs_and_splits_long_lines() {
+        assert_eq!(wrap("a\tb", 80), vec!["a       b"]);
+        assert_eq!(wrap("abcdefghij", 4), vec!["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn wrap_keeps_inner_blank_lines_but_not_trailing_ones() {
+        assert_eq!(wrap("a\n\nb\n\n \n", 80), vec!["a", "", "b"]);
+    }
+}

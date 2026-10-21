@@ -5,6 +5,7 @@ use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
 use crate::atoms::Atoms;
+use crate::clients::Rect;
 use crate::config::NUM_WORKSPACES;
 use crate::monitors::Reserved;
 use crate::wm::WindowManager;
@@ -207,7 +208,7 @@ impl WindowManager {
 
     pub fn update_struts(&mut self) -> Result<()> {
         let screen = self.conn.get_geometry(self.root)?.reply()?;
-        let (screen_width, screen_height) = (screen.width as i64, screen.height as i64);
+        let screen = (screen.width, screen.height);
 
         let mut reserved = vec![Reserved::default(); self.monitors.count()];
 
@@ -215,35 +216,9 @@ impl WindowManager {
             let Some(strut) = self.read_strut(dock)? else {
                 continue;
             };
-            let [left, right, top, bottom] =
-                [strut[0], strut[1], strut[2], strut[3]].map(i64::from);
-            let span = |i: usize| (strut[i] as i64, strut[i + 1] as i64);
 
             for (monitor, reserved) in self.monitors.monitors.iter().zip(&mut reserved) {
-                let g = monitor.geometry;
-                let (x, y) = (g.x as i64, g.y as i64);
-                let (width, height) = (g.width as i64, g.height as i64);
-                let overlaps = |(start, end): (i64, i64), from: i64, size: i64| {
-                    start < from + size && end >= from
-                };
-                let fit = |amount: i64, size: i64| amount.clamp(0, size) as u16;
-
-                if left > 0 && overlaps(span(4), y, height) {
-                    reserved.left = reserved.left.max(fit(left - x, width));
-                }
-                if right > 0 && overlaps(span(6), y, height) {
-                    reserved.right = reserved
-                        .right
-                        .max(fit(x + width - (screen_width - right), width));
-                }
-                if top > 0 && overlaps(span(8), x, width) {
-                    reserved.top = reserved.top.max(fit(top - y, height));
-                }
-                if bottom > 0 && overlaps(span(10), x, width) {
-                    reserved.bottom = reserved
-                        .bottom
-                        .max(fit(y + height - (screen_height - bottom), height));
-                }
+                reserve(reserved, &strut, monitor.geometry, screen);
             }
         }
 
@@ -284,5 +259,71 @@ impl WindowManager {
         }
 
         Ok(None)
+    }
+}
+
+/// Adds to `reserved` the part of `monitor` a `_NET_WM_STRUT_PARTIAL` takes. Struts
+/// are relative to the edges of the whole screen
+fn reserve(reserved: &mut Reserved, strut: &[u32; 12], monitor: Rect, screen: (u16, u16)) {
+    let [left, right, top, bottom] = [strut[0], strut[1], strut[2], strut[3]].map(i64::from);
+    let span = |i: usize| (strut[i] as i64, strut[i + 1] as i64);
+    let (screen_width, screen_height) = (screen.0 as i64, screen.1 as i64);
+
+    let (x, y) = (monitor.x as i64, monitor.y as i64);
+    let (width, height) = (monitor.width as i64, monitor.height as i64);
+    let overlaps =
+        |(start, end): (i64, i64), from: i64, size: i64| start < from + size && end >= from;
+    let fit = |amount: i64, size: i64| amount.clamp(0, size) as u16;
+
+    if left > 0 && overlaps(span(4), y, height) {
+        reserved.left = reserved.left.max(fit(left - x, width));
+    }
+    if right > 0 && overlaps(span(6), y, height) {
+        reserved.right = reserved
+            .right
+            .max(fit(x + width - (screen_width - right), width));
+    }
+    if top > 0 && overlaps(span(8), x, width) {
+        reserved.top = reserved.top.max(fit(top - y, height));
+    }
+    if bottom > 0 && overlaps(span(10), x, width) {
+        reserved.bottom = reserved
+            .bottom
+            .max(fit(y + height - (screen_height - bottom), height));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEFT: Rect = Rect {
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+    };
+    const RIGHT: Rect = Rect { x: 1920, ..LEFT };
+    const SCREEN: (u16, u16) = (3840, 1080);
+
+    fn reserved(strut: [u32; 12], monitor: Rect) -> Reserved {
+        let mut reserved = Reserved::default();
+        reserve(&mut reserved, &strut, monitor, SCREEN);
+        reserved
+    }
+
+    #[test]
+    fn a_top_bar_only_reserves_the_monitors_it_spans() {
+        let strut = [0, 0, 30, 0, 0, 0, 0, 0, 0, 1919, 0, 0];
+        assert_eq!(reserved(strut, LEFT).top, 30);
+        assert_eq!(reserved(strut, RIGHT), Reserved::default());
+    }
+
+    #[test]
+    fn right_and_bottom_struts_are_relative_to_the_screen_edges() {
+        let strut = [0, 40, 0, 25, 0, 0, 0, 1079, 0, 0, 1920, 3839];
+        let right = reserved(strut, RIGHT);
+        assert_eq!((right.right, right.bottom), (40, 25));
+        assert_eq!(reserved(strut, LEFT).right, 0);
     }
 }

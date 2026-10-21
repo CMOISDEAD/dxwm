@@ -7,6 +7,7 @@ Configured by editing the source, like dwm.
 
 ```sh
 make build          # target/release/dxwm
+make test           # unit tests (layout, struts, text), no X server needed
 make run-xephyr     # nested test session (scripts/xephyr.sh)
 ```
 
