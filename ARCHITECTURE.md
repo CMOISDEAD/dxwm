@@ -266,7 +266,11 @@ shows an alert when they finish; the WM never waits for them.
 | `bar.rs`                 | modeline with the workspace minimaps                    |
 | `ewmh.rs`                | EWMH properties and messages, docks and struts          |
 | `restart.rs`             | saving the state, re-exec and adopting windows          |
-| `prompt.rs`              | prompt: launcher, command output, clients, commands     |
+| `prompt/mod.rs`          | prompt: opening it, keys, running the selected entry    |
+| `prompt/input.rs`        | input line editing, filtering and selection             |
+| `prompt/draw.rs`         | drawing the prompt                                      |
+| `prompt/output.rs`       | command output followed live                            |
+| `prompt/launcher.rs`     | programs in `$PATH` and the history                     |
 | `screenshot.rs`          | background screenshots                                  |
 | `keybindings.rs`         | binding tables and modes                                |
 | `keyboard.rs`            | keymap and key grabs                                    |
