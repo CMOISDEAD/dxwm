@@ -13,6 +13,7 @@ mod layout;
 mod monitors;
 mod prompt;
 mod restart;
+mod rules;
 mod screenshot;
 mod utils;
 mod wm;

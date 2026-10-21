@@ -5,7 +5,7 @@ use x11rb::properties::WmHints;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
-use crate::config::DEFAULT_COLUMN_WIDTH;
+use crate::config::{DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, Rule};
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
 
@@ -243,10 +243,21 @@ impl WindowManager {
 
         let takes_focus = !self.is_notification(window)?;
         let fullscreen = self.wants_fullscreen(window)?;
-        let client = self.new_client(window)?;
+        let rule = self.rule_for(window)?;
+        let client = self.new_client(window, rule)?;
         let frame = client.frame;
 
-        let workspace = self.workspace_mut();
+        let workspaces = &mut self.monitors.current_mut().workspaces;
+        let target = rule
+            .and_then(|r| r.workspace)
+            .and_then(|number| number.checked_sub(1))
+            .filter(|&id| workspaces.contains(id))
+            .unwrap_or(workspaces.current_workspace);
+        let visible = target == workspaces.current_workspace;
+
+        let Some(workspace) = workspaces.get_mut(target) else {
+            return Ok(());
+        };
         workspace.add_client(client);
         if takes_focus {
             workspace.focused_client = Some(window);
@@ -258,23 +269,28 @@ impl WindowManager {
             self.layout()?;
         }
 
-        self.conn.map_window(frame)?;
+        if visible {
+            self.conn.map_window(frame)?;
+        }
         self.focus_current()
     }
 
-    pub fn new_client(&mut self, window: Window) -> Result<Client> {
+    pub fn new_client(&mut self, window: Window, rule: Option<&Rule>) -> Result<Client> {
         self.conn.change_window_attributes(
             window,
             &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
         )?;
 
         let title = self.read_title(window)?;
-        let floating = self.initial_float_rect(window)?;
+        let floating = self.initial_float_rect(window, rule.and_then(|r| r.floating))?;
         let frame = self.create_frame(window)?;
         self.conn.map_window(window)?;
 
         let mut client = Client::new(window, frame, title, floating);
         (client.input, client.take_focus) = self.read_focus_model(window)?;
+        if let Some(width) = rule.and_then(|r| r.column_width) {
+            client.column_width = width.clamp(MIN_COLUMN_WIDTH, 1.0);
+        }
         Ok(client)
     }
 

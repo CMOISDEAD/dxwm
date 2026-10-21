@@ -53,3 +53,28 @@ pub const SCREENSHOT_DIR: &str = "$HOME/Pictures/Screenshots";
 pub const TERMINAL_APP: &str = "alacritty";
 pub const FILEMANAGER_APP: &str = "pcmanfm";
 pub const EDITOR_APP: &str = "emacsclient -c";
+
+pub struct Rule {
+    pub class: &'static str,
+    pub workspace: Option<usize>,
+    pub floating: Option<bool>,
+    pub column_width: Option<f32>,
+}
+
+impl Rule {
+    pub const fn class(class: &'static str) -> Self {
+        Self {
+            class,
+            workspace: None,
+            floating: None,
+            column_width: None,
+        }
+    }
+}
+
+/// `class` is matched against both parts of `WM_CLASS` ignoring case, `workspace`
+/// is the number shown to the user
+pub const RULES: &[Rule] = &[Rule {
+    floating: Some(true),
+    ..Rule::class("pavucontrol")
+}];

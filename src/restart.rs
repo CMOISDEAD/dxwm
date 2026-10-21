@@ -104,7 +104,8 @@ impl WindowManager {
             let state = (state.len() == CLIENT_STATE_LEN).then_some(state);
             let fullscreen = self.wants_fullscreen(window)?;
 
-            let mut client = self.new_client(window)?;
+            let rule = self.rule_for(window)?;
+            let mut client = self.new_client(window, rule)?;
             client.fullscreen = fullscreen;
             adopted.push((state, client));
         }

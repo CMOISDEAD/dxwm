@@ -42,7 +42,7 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn initial_float_rect(&self, window: Window) -> Result<Option<Rect>> {
+    pub fn initial_float_rect(&self, window: Window, force: Option<bool>) -> Result<Option<Rect>> {
         let hints = WmSizeHints::get_normal_hints(&self.conn, window)?
             .reply()
             .ok()
@@ -50,7 +50,11 @@ impl WindowManager {
 
         let fixed_size = hints.is_some_and(|h| h.min_size.is_some() && h.min_size == h.max_size);
 
-        if !(fixed_size || self.is_transient(window)? || self.has_floating_type(window)?) {
+        let floating = match force {
+            Some(floating) => floating,
+            None => fixed_size || self.is_transient(window)? || self.has_floating_type(window)?,
+        };
+        if !floating {
             return Ok(None);
         }
 

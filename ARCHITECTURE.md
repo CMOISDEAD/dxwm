@@ -86,6 +86,20 @@ tiled and fullscreen clients and can't leave their monitor.
   can move and resize themselves, tiled ones get a synthetic `ConfigureNotify` with their
   real geometry.
 
+## Rules
+
+`RULES` in `config/mod.rs` changes how a new client is managed, matched by
+`WM_CLASS` (instance or class, ignoring case):
+
+```rust
+Rule { workspace: Some(2), column_width: Some(1.0), ..Rule::class("firefox") },
+Rule { floating: Some(true), ..Rule::class("pavucontrol") },
+```
+
+`workspace` opens it there without switching, `floating` forces floating or
+tiled, `column_width` replaces `DEFAULT_COLUMN_WIDTH`. After a restart the saved
+state wins over the rules.
+
 ## Overlays
 
 Override-redirect windows (dunst notifications, menus, tooltips) are not managed:
@@ -267,6 +281,7 @@ shows an alert when they finish; the WM never waits for them.
 | `clients.rs`             | manage/unmanage, focus, swap, close, fullscreen         |
 | `layout.rs`              | scrolling columns, column widths                        |
 | `decorations.rs`         | frames, title bar drawing                               |
+| `rules.rs`               | matching `RULES` by `WM_CLASS`                          |
 | `floating.rs`            | dialog detection, configure requests, mouse move/resize |
 | `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving       |
 | `monitors.rs`            | RandR detection, refresh, monitor focus/move, pointer   |
