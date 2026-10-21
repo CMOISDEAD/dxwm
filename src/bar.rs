@@ -152,6 +152,11 @@ impl WindowManager {
         self.update_bars()
     }
 
+    pub fn bars_timeout(&self) -> Option<Duration> {
+        let elapsed = self.bars.updated.map_or(STATUS_INTERVAL, |t| t.elapsed());
+        SHOW_BAR.then(|| STATUS_INTERVAL.saturating_sub(elapsed))
+    }
+
     pub fn poll_bars(&mut self) -> Result<()> {
         if self
             .bars

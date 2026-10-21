@@ -1,9 +1,12 @@
 use std::process::{Child, Command, Stdio};
+use std::time::Duration;
 
 use anyhow::Result;
 
 use crate::config::SCREENSHOT_DIR;
 use crate::wm::WindowManager;
+
+const CHILD_POLL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy)]
 pub enum Shot {
@@ -59,6 +62,10 @@ impl WindowManager {
 
         self.screenshot = Some(Screenshot { child, label });
         Ok(())
+    }
+
+    pub fn screenshot_timeout(&self) -> Option<Duration> {
+        self.screenshot.as_ref().map(|_| CHILD_POLL)
     }
 
     pub fn poll_screenshot(&mut self) -> Result<()> {

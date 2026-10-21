@@ -1,3 +1,4 @@
+use std::os::fd::AsRawFd;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -162,22 +163,54 @@ impl WindowManager {
 
     pub fn run(&mut self) -> Result<Exit> {
         loop {
-            if let Some(exit) = self.exit {
-                return Ok(exit);
-            }
-
-            while let Some(event) = self.conn.poll_for_event()? {
-                if let Err(err) = self.handle_event(event) {
-                    eprintln!("Error handling event: {:#}", err);
-                }
-            }
-
             self.poll_alerts()?;
             self.poll_screenshot()?;
             self.poll_prompt()?;
             self.poll_bars()?;
 
-            sleep(Duration::from_millis(32));
+            loop {
+                self.conn.flush()?;
+                let Some(event) = self.conn.poll_for_event()? else {
+                    break;
+                };
+                if let Err(err) = self.handle_event(event) {
+                    eprintln!("Error handling event: {:#}", err);
+                }
+            }
+
+            if let Some(exit) = self.exit {
+                return Ok(exit);
+            }
+            self.wait_for_event(self.next_wakeup());
+        }
+    }
+
+    fn next_wakeup(&self) -> Option<Duration> {
+        [
+            self.alerts_timeout(),
+            self.screenshot_timeout(),
+            self.prompt_timeout(),
+            self.bars_timeout(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    /// Only after poll_for_event returned None: events x11rb already read are not
+    /// seen by poll(2)
+    fn wait_for_event(&self, timeout: Option<Duration>) {
+        let mut fds = [libc::pollfd {
+            fd: self.conn.stream().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+        let timeout = timeout.map_or(-1, |t| {
+            t.as_micros().div_ceil(1000).min(i32::MAX as u128) as i32
+        });
+        // SAFETY: fds is a valid array of one pollfd for the duration of the call
+        unsafe {
+            libc::poll(fds.as_mut_ptr(), 1, timeout);
         }
     }
 

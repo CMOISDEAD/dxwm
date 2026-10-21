@@ -30,6 +30,7 @@ use self::output::Output;
 
 pub const LINE_PADDING: i16 = 3;
 const BLINK: Duration = Duration::from_millis(530);
+const OUTPUT_POLL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy)]
 enum Entry {
@@ -198,6 +199,17 @@ impl WindowManager {
             self.conn.flush()?;
         }
         Ok(())
+    }
+
+    pub fn prompt_timeout(&self) -> Option<Duration> {
+        let prompt = self.prompt.as_ref()?;
+        match &prompt.output {
+            Some(output) => output.status.is_none().then_some(OUTPUT_POLL),
+            None => {
+                let phase = prompt.blink.elapsed().as_millis() % BLINK.as_millis();
+                Some(BLINK - Duration::from_millis(phase as u64))
+            }
+        }
     }
 
     pub fn poll_prompt(&mut self) -> Result<()> {

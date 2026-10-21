@@ -15,6 +15,7 @@ use crate::wm::WindowManager;
 
 const ALERT_TIMEOUT: Duration = Duration::from_secs(3);
 const TYPE_DURATION: Duration = Duration::from_millis(120);
+const FRAME: Duration = Duration::from_millis(32);
 const TAG_WIDTH: usize = 6;
 
 #[derive(Default)]
@@ -176,6 +177,17 @@ impl WindowManager {
             self.conn.flush()?;
         }
         Ok(())
+    }
+
+    pub fn alerts_timeout(&self) -> Option<Duration> {
+        let newest = self.alerts.lines.last()?;
+        if self.alerts.typing {
+            return Some(FRAME);
+        }
+        if self.alerts.window.is_none() || self.keybindings.is_in_submap() {
+            return None;
+        }
+        Some(ALERT_TIMEOUT.saturating_sub(newest.created_at.elapsed()))
     }
 
     pub fn poll_alerts(&mut self) -> Result<()> {

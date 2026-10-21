@@ -42,6 +42,13 @@ MonitorManager ── Monitor (one per RandR monitor, left to right)
 - When a monitor disappears, its clients move to the same workspace of the primary one.
 - Clients are matched to a monitor by name on refresh, so workspaces survive resolution changes.
 
+## Main loop
+
+`run` handles every pending event, then blocks in `poll(2)` on the X connection
+until the next event or the nearest deadline of the timers: typing and hiding
+alerts, the prompt's cursor blink and command output, a running screenshot and
+the modeline status. With nothing pending it sleeps until an event arrives.
+
 ## Layout
 
 Scrolling columns, like niri/PaperWM: the tiled clients of a workspace are
@@ -311,5 +318,3 @@ shows an alert when they finish; the WM never waits for them.
       (niri's consume/expel) and resize columns with the mouse.
 - [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
       (min/max, increments) when resizing floating clients.
-- [ ] Block on the X connection instead of polling every 32 ms (wake up only for
-      events or alert expiry).
