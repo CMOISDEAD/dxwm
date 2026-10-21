@@ -83,8 +83,8 @@ impl WindowManager {
         bind(XK_SEMICOLON, SUPER, Custom(WindowManager::prompt_commands));
 
         bind(XK_RETURN, SUPER, Custom(terminal));
-        bind(XK_A, SUPER, KeyAction::EnterMode("apps".to_string()));
-        bind(XK_S, SUPER, KeyAction::EnterMode("alerts".to_string()));
+        bind(XK_A, SUPER, KeyAction::EnterMode("apps"));
+        bind(XK_S, SUPER, KeyAction::EnterMode("alerts"));
         bind(XK_B, SUPER, Custom(WindowManager::banish_pointer));
         bind(XK_G, SUPER, Custom(WindowManager::clear_alerts));
         bind(XK_ESCAPE, super_shift, Custom(WindowManager::quit));

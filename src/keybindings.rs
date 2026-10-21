@@ -5,9 +5,9 @@ use crate::wm::WindowManager;
 
 pub type Action = fn(&mut WindowManager) -> anyhow::Result<()>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum KeyAction {
-    EnterMode(String),
+    EnterMode(&'static str),
     ExitMode,
     SwitchWorkspace(usize),
     MoveToWorkspace(usize),
@@ -30,8 +30,8 @@ pub struct SubMap {
 #[derive(Default)]
 pub struct KeyBindingManager {
     pub normal_bindings: Vec<KeyBinding>,
-    pub submaps: HashMap<String, SubMap>,
-    pub current_mode: Option<String>,
+    pub submaps: HashMap<&'static str, SubMap>,
+    pub current_mode: Option<&'static str>,
 }
 
 impl KeyBindingManager {
@@ -43,9 +43,9 @@ impl KeyBindingManager {
         });
     }
 
-    pub fn add_submap(&mut self, name: &str, oneshot: bool) {
+    pub fn add_submap(&mut self, name: &'static str, oneshot: bool) {
         self.submaps.insert(
-            name.to_string(),
+            name,
             SubMap {
                 bindings: Vec::new(),
                 oneshot,
@@ -64,9 +64,7 @@ impl KeyBindingManager {
     }
 
     fn current_submap(&self) -> Option<&SubMap> {
-        self.current_mode
-            .as_ref()
-            .and_then(|mode| self.submaps.get(mode))
+        self.current_mode.and_then(|mode| self.submaps.get(mode))
     }
 
     pub fn active_bindings(&self) -> &[KeyBinding] {
@@ -80,11 +78,11 @@ impl KeyBindingManager {
         self.active_bindings()
             .iter()
             .find(|b| b.keycode == keycode && b.modifiers == modifiers)
-            .map(|b| b.action.clone())
+            .map(|b| b.action)
     }
 
-    pub fn enter_mode(&mut self, mode: String) {
-        if self.submaps.contains_key(&mode) {
+    pub fn enter_mode(&mut self, mode: &'static str) {
+        if self.submaps.contains_key(mode) {
             println!("Entering mode: {}", mode);
             self.current_mode = Some(mode);
         }
