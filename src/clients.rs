@@ -351,7 +351,7 @@ impl WindowManager {
         self.update_client_borders()
     }
 
-    fn set_state(&self, window: Window, atom: Atom, enabled: bool) -> Result<()> {
+    pub fn set_state(&self, window: Window, atom: Atom, enabled: bool) -> Result<()> {
         let mut state = self.property32(window, self.atoms.net_wm_state, AtomEnum::ATOM)?;
         state.retain(|&a| a != atom);
         if enabled {
@@ -522,7 +522,8 @@ impl WindowManager {
         }
 
         self.set_state(window, self.atoms.net_wm_state_fullscreen, fullscreen)?;
-        self.layout_monitor(monitor_id)
+        self.layout_monitor(monitor_id)?;
+        self.sync_ewmh()
     }
 
     pub fn handle_state_request(&mut self, e: ClientMessageEvent) -> Result<()> {

@@ -129,13 +129,17 @@ monitor.
 
 Published on the root: `_NET_SUPPORTED`, `_NET_SUPPORTING_WM_CHECK`,
 `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`, `_NET_NUMBER_OF_DESKTOPS`,
-`_NET_DESKTOP_NAMES`, `_NET_CURRENT_DESKTOP`, and `_NET_WM_DESKTOP` on every
-client. The desktops are the workspaces of the current monitor. They are only
-written when they change (`Ewmh` keeps the last values).
+`_NET_DESKTOP_NAMES`, `_NET_CURRENT_DESKTOP`, `_NET_WORKAREA` (the work area of
+the current monitor for every desktop). On every client: `_NET_WM_DESKTOP`,
+`_NET_FRAME_EXTENTS` (border and title, none in fullscreen), `_NET_WM_STATE_HIDDEN`
+and the ICCCM `WM_STATE` (Iconic) while its workspace isn't visible. The
+desktops are the workspaces of the current monitor. They are only written when
+they change (`Ewmh` keeps the last values).
 
 Client messages: `_NET_ACTIVE_WINDOW` jumps to the client (its monitor and
 workspace), `_NET_CLOSE_WINDOW` closes it, `_NET_CURRENT_DESKTOP` switches
-workspace and `_NET_WM_STATE` toggles fullscreen and `DEMANDS_ATTENTION`.
+workspace, `_NET_WM_STATE` toggles fullscreen and `DEMANDS_ATTENTION`, and
+`_NET_REQUEST_FRAME_EXTENTS` gets the extents before the window is mapped.
 
 ## Urgency
 

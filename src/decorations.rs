@@ -151,6 +151,9 @@ impl WindowManager {
             self.conn
                 .change_save_set(SetMode::DELETE, client.window)?
                 .ignore_error();
+            self.conn
+                .delete_property(client.window, self.atoms.wm_state)?
+                .ignore_error();
         }
 
         self.conn.destroy_window(client.frame)?;

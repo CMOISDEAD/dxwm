@@ -6,15 +6,24 @@ use x11rb::wrapper::ConnectionExt as _;
 
 use crate::atoms::Atoms;
 use crate::clients::Rect;
-use crate::config::NUM_WORKSPACES;
+use crate::config::{BORDER_WIDTH, NUM_WORKSPACES, TITLE_HEIGHT};
 use crate::monitors::Reserved;
 use crate::wm::WindowManager;
 
 #[derive(Default)]
 pub struct Ewmh {
     clients: Vec<(Window, u32)>,
+    states: Vec<ClientState>,
     active: Option<Window>,
     desktop: Option<u32>,
+    workarea: Option<Rect>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct ClientState {
+    window: Window,
+    hidden: bool,
+    decorated: bool,
 }
 
 impl Ewmh {
@@ -69,6 +78,10 @@ impl Ewmh {
                 atoms.net_wm_state,
                 atoms.net_wm_state_fullscreen,
                 atoms.net_wm_state_demands_attention,
+                atoms.net_wm_state_hidden,
+                atoms.net_frame_extents,
+                atoms.net_request_frame_extents,
+                atoms.net_workarea,
                 atoms.net_wm_strut,
                 atoms.net_wm_strut_partial,
                 atoms.net_wm_window_type,
@@ -161,6 +174,80 @@ impl WindowManager {
             self.ewmh.desktop = Some(desktop);
         }
 
+        let area = self.monitors.current().work_area();
+        if Some(area) != self.ewmh.workarea {
+            let rect = [
+                area.x as u32,
+                area.y as u32,
+                area.width as u32,
+                area.height as u32,
+            ];
+            self.conn.change_property32(
+                PropMode::REPLACE,
+                self.root,
+                self.atoms.net_workarea,
+                AtomEnum::CARDINAL,
+                &rect.repeat(NUM_WORKSPACES),
+            )?;
+            self.ewmh.workarea = Some(area);
+        }
+
+        self.sync_client_states()
+    }
+
+    fn sync_client_states(&mut self) -> Result<()> {
+        let states: Vec<ClientState> = self
+            .monitors
+            .monitors
+            .iter()
+            .flat_map(|m| {
+                let visible = m.workspaces.current_workspace;
+                m.workspaces.workspaces.iter().flat_map(move |ws| {
+                    ws.clients.iter().map(move |c| ClientState {
+                        window: c.window,
+                        hidden: ws.id != visible,
+                        decorated: !c.fullscreen,
+                    })
+                })
+            })
+            .collect();
+
+        for state in &states {
+            let old = self.ewmh.states.iter().find(|s| s.window == state.window);
+            if old.is_none_or(|old| old.hidden != state.hidden) {
+                self.set_state(state.window, self.atoms.net_wm_state_hidden, state.hidden)?;
+                // NormalState, IconicState
+                let wm_state = if state.hidden { 3 } else { 1 };
+                self.conn.change_property32(
+                    PropMode::REPLACE,
+                    state.window,
+                    self.atoms.wm_state,
+                    self.atoms.wm_state,
+                    &[wm_state, x11rb::NONE],
+                )?;
+            }
+            if old.is_none_or(|old| old.decorated != state.decorated) {
+                self.set_frame_extents(state.window, state.decorated)?;
+            }
+        }
+
+        self.ewmh.states = states;
+        Ok(())
+    }
+
+    fn set_frame_extents(&self, window: Window, decorated: bool) -> Result<()> {
+        let (border, title) = if decorated {
+            (BORDER_WIDTH, TITLE_HEIGHT)
+        } else {
+            (0, 0)
+        };
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            self.atoms.net_frame_extents,
+            AtomEnum::CARDINAL,
+            &[border, border, border + title, border],
+        )?;
         Ok(())
     }
 
@@ -175,6 +262,10 @@ impl WindowManager {
             self.close_client(e.window)
         } else if e.type_ == atoms.net_current_desktop {
             self.switch_to_workspace(e.data.as_data32()[0] as usize)?;
+            Ok(())
+        } else if e.type_ == atoms.net_request_frame_extents {
+            self.set_frame_extents(e.window, true)?;
+            self.conn.flush()?;
             Ok(())
         } else {
             Ok(())
@@ -228,6 +319,7 @@ impl WindowManager {
         }
 
         self.layout_all_monitors()?;
+        self.sync_ewmh()?;
         self.place_bars()
     }
 
