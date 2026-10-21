@@ -76,6 +76,7 @@ impl WindowManager {
         );
         bind(XK_R, SUPER, Custom(WindowManager::cycle_column_width));
         bind(XK_M, SUPER, Custom(WindowManager::toggle_maximize_column));
+        bind(XK_C, SUPER, Custom(WindowManager::center_column));
 
         bind(XK_P, SUPER, Custom(|wm| wm.prompt_run(false)));
         bind(XK_P, super_shift, Custom(|wm| wm.prompt_run(true)));
@@ -243,6 +244,7 @@ pub const COMMANDS: &[(&str, Action)] = &[
     ("fullscreen", fullscreen),
     ("float", float),
     ("maximize", WindowManager::toggle_maximize_column),
+    ("center", WindowManager::center_column),
     ("close", WindowManager::close_focused_client),
     ("screenshot", screenshot_monitor),
     ("screenshot area", screenshot_area),

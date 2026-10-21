@@ -10,6 +10,7 @@ pub const DEFAULT_COLUMN_WIDTH: f32 = 0.5;
 pub const COLUMN_WIDTH_PRESETS: [f32; 3] = [1.0 / 3.0, 0.5, 2.0 / 3.0];
 pub const COLUMN_WIDTH_STEP: f32 = 0.1;
 pub const MIN_COLUMN_WIDTH: f32 = 0.2;
+pub const CENTER_FOCUSED_COLUMN: bool = false;
 
 pub const BACKGROUND: u32 = 0xD7D5D1;
 pub const FOREGROUND: u32 = 0x222222;

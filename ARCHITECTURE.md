@@ -52,6 +52,8 @@ monitor (minus `MARGIN`).
   New ones use `DEFAULT_COLUMN_WIDTH` (0.5: two fit exactly side by side).
 - `Workspace::scroll` is how far the strip is scrolled. Each layout moves it just
   enough to show the focused column completely, and never past the ends.
+  `Super+C` centers the focused column once; `CENTER_FOCUSED_COLUMN = true`
+  keeps it always centered.
 - A new client opens right after the focused one.
 - Columns out of view stay mapped but parked off-screen (`x = -2 * monitor
   width`), so scrolling is instant. A column cut by the monitor edge is clipped
@@ -211,6 +213,7 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+H / L`           | narrower / wider column (10%)   |
 | `Super+R`               | next preset width (1/3, 1/2, 2/3) |
 | `Super+M`               | maximize column / default width |
+| `Super+C`               | center the focused column       |
 | `Super+wheel`           | focus previous / next client    |
 | `Super+F`               | toggle fullscreen               |
 | `Super+Shift+Space`     | toggle floating                 |
@@ -304,7 +307,7 @@ shows an alert when they finish; the WM never waits for them.
 
 ## Roadmap
 
-- [ ] Columns: center the focused column, stack several clients in one column
+- [ ] Columns: stack several clients in one column
       (niri's consume/expel) and resize columns with the mouse.
 - [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
       (min/max, increments) when resizing floating clients.

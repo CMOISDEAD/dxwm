@@ -5,8 +5,8 @@ use x11rb::protocol::xproto::*;
 
 use crate::clients::{Client, Rect};
 use crate::config::{
-    BORDER_WIDTH, COLUMN_WIDTH_PRESETS, DEFAULT_COLUMN_WIDTH, MARGIN, MIN_COLUMN_WIDTH,
-    TITLE_HEIGHT,
+    BORDER_WIDTH, CENTER_FOCUSED_COLUMN, COLUMN_WIDTH_PRESETS, DEFAULT_COLUMN_WIDTH, MARGIN,
+    MIN_COLUMN_WIDTH, TITLE_HEIGHT,
 };
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
@@ -58,6 +58,7 @@ fn arrange(
     workspace: &Workspace,
     monitor: Rect,
     area: Rect,
+    center: bool,
 ) -> (i32, Vec<(Window, Window, Placement)>) {
     let (mon_x, mon_y) = (monitor.x as i32, monitor.y as i32);
     let (mon_width, mon_height) = (monitor.width as i32, monitor.height as i32);
@@ -84,7 +85,9 @@ fn arrange(
 
     let mut scroll = workspace.scroll;
     if let Some(&(_, start, width)) = columns.iter().find(|c| Some(c.0) == anchor) {
-        if start < scroll || width >= view {
+        if center {
+            scroll = centered_scroll(start, width, view);
+        } else if start < scroll || width >= view {
             scroll = start;
         } else if start + width > scroll + view {
             scroll = start + width - view;
@@ -129,6 +132,10 @@ fn arrange(
     (scroll, placements)
 }
 
+fn centered_scroll(start: i32, width: i32, view: i32) -> i32 {
+    start + width / 2 - view / 2
+}
+
 impl WindowManager {
     pub fn layout(&mut self) -> Result<()> {
         self.layout_monitor(self.monitors.current_monitor)
@@ -150,6 +157,7 @@ impl WindowManager {
             monitor.workspaces.current(),
             monitor.geometry,
             monitor.work_area(),
+            CENTER_FOCUSED_COLUMN,
         );
 
         self.monitors.monitors[monitor_id]
@@ -173,6 +181,24 @@ impl WindowManager {
         self.update_bars()?;
         self.conn.flush()?;
         Ok(())
+    }
+
+    pub fn center_column(&mut self) -> Result<()> {
+        let monitor = self.monitors.current();
+        let workspace = monitor.workspaces.current();
+        let area_width = monitor.work_area().width as i32;
+        let columns = strip(workspace, area_width);
+
+        let Some(&(_, start, width)) = columns
+            .iter()
+            .find(|c| Some(c.0) == workspace.focused_client)
+        else {
+            return Ok(());
+        };
+
+        let view = area_width - 2 * MARGIN as i32;
+        self.workspace_mut().scroll = centered_scroll(start, width, view);
+        self.layout()
     }
 
     fn set_column_width(&mut self, change: impl Fn(f32) -> f32) -> Result<()> {
@@ -367,7 +393,8 @@ mod tests {
 
     #[test]
     fn scrolls_just_enough_to_show_the_focused_column() {
-        let (scroll, placements) = arrange(&workspace(&[0.5, 0.5, 0.5], 2), MONITOR, MONITOR);
+        let (scroll, placements) =
+            arrange(&workspace(&[0.5, 0.5, 0.5], 2), MONITOR, MONITOR, false);
 
         assert_eq!(scroll, 395);
         assert_eq!(placement(&placements, 1).x, -1600);
@@ -383,7 +410,7 @@ mod tests {
 
     #[test]
     fn clips_a_column_cut_by_the_monitor_edge() {
-        let (scroll, placements) = arrange(&workspace(&[0.7, 0.7], 0), MONITOR, MONITOR);
+        let (scroll, placements) = arrange(&workspace(&[0.7, 0.7], 0), MONITOR, MONITOR, false);
 
         assert_eq!(scroll, 0);
         assert_eq!(placement(&placements, 2).clip, Some((563, 800)));
@@ -391,10 +418,26 @@ mod tests {
     }
 
     #[test]
+    fn centers_the_focused_column_when_asked() {
+        let ws = workspace(&[0.5, 0.5, 0.5, 0.5], 2);
+        assert_eq!(
+            arrange(&ws, MONITOR, MONITOR, true).0,
+            790 + 385 / 2 - 780 / 2
+        );
+        assert_eq!(arrange(&ws, MONITOR, MONITOR, false).0, 395);
+    }
+
+    #[test]
+    fn centering_never_scrolls_past_the_ends() {
+        let ws = workspace(&[0.5, 0.5, 0.5], 0);
+        assert_eq!(arrange(&ws, MONITOR, MONITOR, true).0, 0);
+    }
+
+    #[test]
     fn never_scrolls_past_the_ends() {
         let mut ws = workspace(&[0.5, 0.5], 0);
         ws.scroll = 5000;
-        assert_eq!(arrange(&ws, MONITOR, MONITOR).0, 0);
+        assert_eq!(arrange(&ws, MONITOR, MONITOR, false).0, 0);
     }
 
     #[test]
@@ -407,7 +450,7 @@ mod tests {
             ..MONITOR
         };
 
-        let (_, placements) = arrange(&ws, MONITOR, area);
+        let (_, placements) = arrange(&ws, MONITOR, area, false);
 
         let fullscreen = placement(&placements, 2);
         assert_eq!(
@@ -433,7 +476,7 @@ mod tests {
             height: 200,
         });
 
-        let (_, placements) = arrange(&ws, MONITOR, MONITOR);
+        let (_, placements) = arrange(&ws, MONITOR, MONITOR, false);
         assert_eq!(
             *placement(&placements, 1),
             Placement::framed(500, 0, 300, 200)
@@ -451,6 +494,6 @@ mod tests {
         });
         ws.scroll = 395;
 
-        assert_eq!(arrange(&ws, MONITOR, MONITOR).0, 0);
+        assert_eq!(arrange(&ws, MONITOR, MONITOR, false).0, 0);
     }
 }
