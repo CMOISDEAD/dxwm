@@ -1,5 +1,4 @@
 use anyhow::Result;
-use x11rb::connection::Connection;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
@@ -68,7 +67,9 @@ impl WindowManager {
             }
         }
 
-        self.conn.flush()?;
+        // Closing the connection with unread events resets it, and the server drops
+        // the requests it hasn't processed yet
+        self.conn.sync()?;
         Ok(())
     }
 
