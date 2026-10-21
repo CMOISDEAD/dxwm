@@ -25,6 +25,9 @@ pub const TITLE_BG_FOCUSED: u32 = BORDER_FOCUSED;
 pub const TITLE_BG_UNFOCUSED: u32 = BORDER_UNFOCUSED;
 pub const TITLE_FG_FOCUSED: u32 = 0x222222;
 pub const TITLE_FG_UNFOCUSED: u32 = 0xD7D5D1;
+pub const BORDER_URGENT: u32 = SELECTED_BG;
+pub const TITLE_BG_URGENT: u32 = SELECTED_BG;
+pub const TITLE_FG_URGENT: u32 = SELECTED_FG;
 pub const TITLE_PADDING: i16 = 6;
 /// X core font (XLFD), "fixed" if it can't be opened. Only iso10646 fonts show
 /// non latin-1 characters

@@ -6,8 +6,9 @@ use x11rb::rust_connection::RustConnection;
 
 use crate::clients::Client;
 use crate::config::{
-    BORDER_FOCUSED, BORDER_UNFOCUSED, BORDER_WIDTH, TITLE_BG_FOCUSED, TITLE_BG_UNFOCUSED,
-    TITLE_FG_FOCUSED, TITLE_FG_UNFOCUSED, TITLE_FONT, TITLE_HEIGHT, TITLE_PADDING,
+    BORDER_FOCUSED, BORDER_UNFOCUSED, BORDER_URGENT, BORDER_WIDTH, TITLE_BG_FOCUSED,
+    TITLE_BG_UNFOCUSED, TITLE_BG_URGENT, TITLE_FG_FOCUSED, TITLE_FG_UNFOCUSED, TITLE_FG_URGENT,
+    TITLE_FONT, TITLE_HEIGHT, TITLE_PADDING,
 };
 use crate::wm::WindowManager;
 
@@ -159,6 +160,8 @@ impl WindowManager {
     pub fn draw_frame(&self, client: &Client, focused: bool) -> Result<()> {
         let (border, background, foreground) = if focused {
             (BORDER_FOCUSED, TITLE_BG_FOCUSED, TITLE_FG_FOCUSED)
+        } else if client.urgent {
+            (BORDER_URGENT, TITLE_BG_URGENT, TITLE_FG_URGENT)
         } else {
             (BORDER_UNFOCUSED, TITLE_BG_UNFOCUSED, TITLE_FG_UNFOCUSED)
         };

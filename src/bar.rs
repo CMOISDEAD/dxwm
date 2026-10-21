@@ -47,6 +47,7 @@ struct Modeline {
 struct WorkspaceView {
     number: usize,
     visible: bool,
+    urgent: bool,
     columns: Vec<(i16, i16, bool)>,
     view: Option<i16>,
 }
@@ -223,6 +224,7 @@ impl WindowManager {
                 Some(WorkspaceView {
                     number: ws.number(),
                     visible,
+                    urgent: ws.clients.iter().any(|c| c.urgent),
                     view: (visible && !ws.clients.is_empty()).then(|| scale(ws.scroll)),
                     columns,
                 })
@@ -256,7 +258,8 @@ impl WindowManager {
         let mut x = TITLE_PADDING;
 
         for workspace in &modeline.workspaces {
-            let label = format!(" {} ", workspace.number);
+            let mark = if workspace.urgent { '*' } else { ' ' };
+            let label = format!(" {}{}", workspace.number, mark);
             let label_width = label.len() as i16 * char_width;
             let (foreground, background) = match (workspace.visible, modeline.active) {
                 (true, true) => (SELECTED_FG, SELECTED_BG),

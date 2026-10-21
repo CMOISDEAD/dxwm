@@ -48,6 +48,7 @@ pub struct Client {
     /// ICCCM focus model: `WM_HINTS` input and `WM_TAKE_FOCUS` in `WM_PROTOCOLS`
     pub input: bool,
     pub take_focus: bool,
+    pub urgent: bool,
 }
 
 impl Client {
@@ -62,6 +63,7 @@ impl Client {
             column_width: DEFAULT_COLUMN_WIDTH,
             input: true,
             take_focus: false,
+            urgent: false,
         }
     }
 
@@ -160,6 +162,9 @@ impl WindowManager {
     pub fn focus_current(&mut self) -> Result<()> {
         match self.focused_client() {
             Some(window) => {
+                if self.client(window).is_some_and(|c| c.urgent) {
+                    self.set_urgent(window, false)?;
+                }
                 if let Some(client) = self.client(window) {
                     if client.input {
                         self.conn
@@ -273,26 +278,77 @@ impl WindowManager {
         Ok(client)
     }
 
+    fn read_wm_hints(&self, window: Window) -> Result<Option<WmHints>> {
+        Ok(WmHints::get(&self.conn, window)?.reply().ok().flatten())
+    }
+
     fn read_focus_model(&self, window: Window) -> Result<(bool, bool)> {
-        let input = WmHints::get(&self.conn, window)?
-            .reply()
-            .ok()
-            .flatten()
+        let input = self
+            .read_wm_hints(window)?
             .and_then(|hints| hints.input)
             .unwrap_or(true);
         let take_focus = self.protocols(window)?.contains(&self.atoms.wm_take_focus);
         Ok((input, take_focus))
     }
 
-    pub fn update_focus_model(&mut self, window: Window) -> Result<()> {
+    pub fn update_hints(&mut self, window: Window) -> Result<()> {
         if self.client(window).is_none() {
             return Ok(());
         }
 
         let (input, take_focus) = self.read_focus_model(window)?;
+        let urgent = self
+            .read_wm_hints(window)?
+            .is_some_and(|hints| hints.urgent);
         if let Some(client) = self.client_mut(window) {
             (client.input, client.take_focus) = (input, take_focus);
         }
+        self.set_urgent(window, urgent)
+    }
+
+    pub fn set_urgent(&mut self, window: Window, urgent: bool) -> Result<()> {
+        let urgent = urgent && self.focused_client() != Some(window);
+        let Some((monitor_id, workspace_id)) = self.find_client(window) else {
+            return Ok(());
+        };
+        let Some(client) = self.client_mut(window) else {
+            return Ok(());
+        };
+        if client.urgent == urgent {
+            return Ok(());
+        }
+
+        client.urgent = urgent;
+        let title = client.title.clone();
+        self.set_state(window, self.atoms.net_wm_state_demands_attention, urgent)?;
+
+        if urgent {
+            let number = workspace_id + 1;
+            let alert = if self.monitors.count() > 1 {
+                format!("[URGENT] {}:{} {}", monitor_id, number, title)
+            } else {
+                format!("[URGENT] {} {}", number, title)
+            };
+            self.draw_alert(alert)?;
+        }
+        self.update_bars()?;
+        self.update_client_borders()
+    }
+
+    fn set_state(&self, window: Window, atom: Atom, enabled: bool) -> Result<()> {
+        let mut state = self.property32(window, self.atoms.net_wm_state, AtomEnum::ATOM)?;
+        state.retain(|&a| a != atom);
+        if enabled {
+            state.push(atom);
+        }
+
+        self.conn.change_property32(
+            PropMode::REPLACE,
+            window,
+            self.atoms.net_wm_state,
+            AtomEnum::ATOM,
+            &state,
+        )?;
         Ok(())
     }
 
@@ -449,39 +505,36 @@ impl WindowManager {
             println!("Removing fullscreen from client {}", window);
         }
 
-        // Only the fullscreen atom is ours, the client may have set other states
-        let atom = self.atoms.net_wm_state_fullscreen;
-        let mut state = self.property32(window, self.atoms.net_wm_state, AtomEnum::ATOM)?;
-        state.retain(|&a| a != atom);
-        if fullscreen {
-            state.push(atom);
-        }
-
-        self.conn.change_property32(
-            PropMode::REPLACE,
-            window,
-            self.atoms.net_wm_state,
-            AtomEnum::ATOM,
-            &state,
-        )?;
-
+        self.set_state(window, self.atoms.net_wm_state_fullscreen, fullscreen)?;
         self.layout_monitor(monitor_id)
     }
 
     pub fn handle_state_request(&mut self, e: ClientMessageEvent) -> Result<()> {
         let [action, first, second, ..] = e.data.as_data32();
-        let fullscreen = self.atoms.net_wm_state_fullscreen;
-
-        if first != fullscreen && second != fullscreen {
+        let Some(client) = self.client(e.window) else {
             return Ok(());
-        }
+        };
+        let (fullscreen, urgent) = (client.fullscreen, client.urgent);
 
         // _NET_WM_STATE_REMOVE, _NET_WM_STATE_ADD, _NET_WM_STATE_TOGGLE
-        match action {
-            0 => self.set_fullscreen(e.window, false),
-            1 => self.set_fullscreen(e.window, true),
-            2 => self.toggle_fullscreen(e.window),
-            _ => Ok(()),
+        let apply = |current: bool| match action {
+            0 => Some(false),
+            1 => Some(true),
+            2 => Some(!current),
+            _ => None,
+        };
+        let requested = |atom: Atom| first == atom || second == atom;
+
+        if requested(self.atoms.net_wm_state_fullscreen)
+            && let Some(enabled) = apply(fullscreen)
+        {
+            self.set_fullscreen(e.window, enabled)?;
         }
+        if requested(self.atoms.net_wm_state_demands_attention)
+            && let Some(enabled) = apply(urgent)
+        {
+            self.set_urgent(e.window, enabled)?;
+        }
+        Ok(())
     }
 }

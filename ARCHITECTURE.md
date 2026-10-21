@@ -108,7 +108,15 @@ written when they change (`Ewmh` keeps the last values).
 
 Client messages: `_NET_ACTIVE_WINDOW` jumps to the client (its monitor and
 workspace), `_NET_CLOSE_WINDOW` closes it, `_NET_CURRENT_DESKTOP` switches
-workspace and `_NET_WM_STATE` toggles fullscreen.
+workspace and `_NET_WM_STATE` toggles fullscreen and `DEMANDS_ATTENTION`.
+
+## Urgency
+
+A client is urgent when it sets the urgency flag of `WM_HINTS` or asks for
+`_NET_WM_STATE_DEMANDS_ATTENTION`, unless it has the focus. Its frame turns
+inverse (`BORDER_URGENT`, `TITLE_*_URGENT`), its workspace gets a `*` in the
+modeline and an alert shows where it is (`URGENT 3 title`). Getting the focus
+clears it. dxwm keeps `DEMANDS_ATTENTION` in its `_NET_WM_STATE` while it lasts.
 
 ## Restart
 
@@ -287,4 +295,3 @@ shows an alert when they finish; the WM never waits for them.
       (min/max, increments) when resizing floating clients.
 - [ ] Block on the X connection instead of polling every 32 ms (wake up only for
       events or alert expiry).
-- [ ] Urgency hint in the border or as an alert.

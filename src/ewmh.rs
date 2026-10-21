@@ -68,6 +68,7 @@ impl Ewmh {
                 atoms.net_wm_name,
                 atoms.net_wm_state,
                 atoms.net_wm_state_fullscreen,
+                atoms.net_wm_state_demands_attention,
                 atoms.net_wm_strut,
                 atoms.net_wm_strut_partial,
                 atoms.net_wm_window_type,
