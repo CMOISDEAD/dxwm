@@ -5,7 +5,7 @@ use x11rb::properties::WmHints;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 
-use crate::config::{DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, Rule};
+use crate::config::{DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, Rule, SCRATCHPAD_CLASS};
 use crate::wm::WindowManager;
 use crate::workspaces::Workspace;
 
@@ -49,6 +49,7 @@ pub struct Client {
     pub input: bool,
     pub take_focus: bool,
     pub urgent: bool,
+    pub scratchpad: bool,
 }
 
 impl Client {
@@ -64,6 +65,7 @@ impl Client {
             input: true,
             take_focus: false,
             urgent: false,
+            scratchpad: false,
         }
     }
 
@@ -125,7 +127,7 @@ impl WindowManager {
             .find_map(|ws| ws.get_mut(window))
     }
 
-    fn workspace_of_mut(
+    pub fn workspace_of_mut(
         &mut self,
         monitor_id: usize,
         workspace_id: usize,
@@ -137,7 +139,7 @@ impl WindowManager {
             .get_mut(workspace_id)
     }
 
-    fn is_workspace_visible(&self, monitor_id: usize, workspace_id: usize) -> bool {
+    pub fn is_workspace_visible(&self, monitor_id: usize, workspace_id: usize) -> bool {
         self.monitors
             .get(monitor_id)
             .is_some_and(|m| m.workspaces.current_workspace == workspace_id)
@@ -230,7 +232,8 @@ impl WindowManager {
 
     pub fn manage_window(&mut self, window: Window) -> Result<()> {
         // Its frame decides if it's visible
-        if self.find_client(window).is_some() {
+        let hidden_scratchpad = self.scratchpad.as_ref().is_some_and(|c| c.window == window);
+        if hidden_scratchpad || self.find_client(window).is_some() {
             self.conn.map_window(window)?;
             return Ok(());
         }
@@ -290,6 +293,10 @@ impl WindowManager {
         (client.input, client.take_focus) = self.read_focus_model(window)?;
         if let Some(width) = rule.and_then(|r| r.column_width) {
             client.column_width = width.clamp(MIN_COLUMN_WIDTH, 1.0);
+        }
+        if self.has_class(window, SCRATCHPAD_CLASS)? {
+            client.scratchpad = true;
+            client.floating = Some(self.scratchpad_rect());
         }
         Ok(client)
     }
@@ -375,6 +382,12 @@ impl WindowManager {
     }
 
     pub fn unmanage_client(&mut self, window: Window, destroyed: bool) -> Result<()> {
+        if self.scratchpad.as_ref().is_some_and(|c| c.window == window)
+            && let Some(client) = self.scratchpad.take()
+        {
+            return self.destroy_frame(&client, destroyed);
+        }
+
         let Some((monitor_id, workspace_id)) = self.find_client(window) else {
             return Ok(());
         };

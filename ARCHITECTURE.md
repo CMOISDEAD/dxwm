@@ -113,6 +113,15 @@ Rule { floating: Some(true), ..Rule::class("pavucontrol") },
 tiled, `column_width` replaces `DEFAULT_COLUMN_WIDTH`. After a restart the saved
 state wins over the rules.
 
+## Scratchpad
+
+`Super+`` ` toggles a floating terminal kept apart from the workspaces. If there
+is none it runs `SCRATCHPAD_COMMAND`, and the window of class `SCRATCHPAD_CLASS`
+becomes the scratchpad (`SCRATCHPAD_SIZE` of the monitor, centered). Toggling it
+hides it when it is focused on the current workspace and brings it to the current
+workspace and monitor otherwise. While hidden it is in no workspace
+(`WindowManager::scratchpad`), with its frame unmapped. A restart shows it again.
+
 ## Overlays
 
 Override-redirect windows (dunst notifications, menus, tooltips) are not managed:
@@ -223,6 +232,7 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | Keys                    | Action                          |
 |-------------------------|---------------------------------|
 | `Super+Return`          | terminal                        |
+| `` Super+` ``           | toggle the scratchpad           |
 | `Super+J / K`           | focus next / previous client    |
 | `Super+Shift+J / K`     | move column right / left        |
 | `Super+H / L`           | narrower / wider column (10%)   |
@@ -299,6 +309,7 @@ shows an alert when they finish; the WM never waits for them.
 | `clients.rs`             | manage/unmanage, focus, swap, close, fullscreen         |
 | `layout.rs`              | scrolling columns, column widths                        |
 | `decorations.rs`         | frames, title bar drawing                               |
+| `scratchpad.rs`          | showing and hiding the scratchpad                       |
 | `rules.rs`               | matching `RULES` by `WM_CLASS`                          |
 | `floating.rs`            | dialog detection, configure requests, mouse move/resize |
 | `workspaces.rs`          | `Workspace`, `WorkspaceManager`, switching/moving       |

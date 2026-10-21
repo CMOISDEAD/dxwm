@@ -55,6 +55,12 @@ pub const TERMINAL_APP: &str = "alacritty";
 pub const FILEMANAGER_APP: &str = "pcmanfm";
 pub const EDITOR_APP: &str = "emacsclient -c";
 
+pub const SCRATCHPAD_CLASS: &str = "dxwm-scratchpad";
+/// Has to open a window of class SCRATCHPAD_CLASS
+pub const SCRATCHPAD_COMMAND: &str = "alacritty --class dxwm-scratchpad";
+/// Fractions of the monitor
+pub const SCRATCHPAD_SIZE: (f32, f32) = (0.6, 0.6);
+
 pub struct Rule {
     pub class: &'static str,
     pub workspace: Option<usize>,

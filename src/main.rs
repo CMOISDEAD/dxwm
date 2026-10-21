@@ -14,6 +14,7 @@ mod monitors;
 mod prompt;
 mod restart;
 mod rules;
+mod scratchpad;
 mod screenshot;
 mod utils;
 mod wm;

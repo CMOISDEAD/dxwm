@@ -13,6 +13,7 @@ use x11rb::rust_connection::RustConnection;
 use crate::alerts::Alerts;
 use crate::atoms::Atoms;
 use crate::bar::Bars;
+use crate::clients::Client;
 use crate::config::NUM_WORKSPACES;
 use crate::decorations::Decorations;
 use crate::ewmh::Ewmh;
@@ -43,6 +44,7 @@ pub struct WindowManager {
     pub bars: Bars,
     pub drag: Option<Drag>,
     pub screenshot: Option<Screenshot>,
+    pub scratchpad: Option<Client>,
     pub overlays: Vec<Window>,
     pub docks: Vec<Window>,
     pub enter_barrier: u64,
@@ -112,6 +114,7 @@ impl WindowManager {
             bars: Bars::default(),
             drag: None,
             screenshot: None,
+            scratchpad: None,
             overlays: Vec::new(),
             docks: Vec::new(),
             enter_barrier: 0,

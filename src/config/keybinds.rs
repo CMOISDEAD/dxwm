@@ -84,6 +84,7 @@ impl WindowManager {
         bind(XK_SEMICOLON, SUPER, Custom(WindowManager::prompt_commands));
 
         bind(XK_RETURN, SUPER, Custom(terminal));
+        bind(XK_GRAVE, SUPER, Custom(WindowManager::toggle_scratchpad));
         bind(XK_A, SUPER, KeyAction::EnterMode("apps"));
         bind(XK_S, SUPER, KeyAction::EnterMode("alerts"));
         bind(XK_B, SUPER, Custom(WindowManager::banish_pointer));
@@ -241,6 +242,7 @@ pub const COMMANDS: &[(&str, Action)] = &[
     ("terminal", terminal),
     ("editor", editor),
     ("files", files),
+    ("scratchpad", WindowManager::toggle_scratchpad),
     ("fullscreen", fullscreen),
     ("float", float),
     ("maximize", WindowManager::toggle_maximize_column),

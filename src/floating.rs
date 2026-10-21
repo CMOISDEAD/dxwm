@@ -131,7 +131,7 @@ impl WindowManager {
         Ok(Some(rect))
     }
 
-    fn centered_rect(&self, width: u32, height: u32) -> Rect {
+    pub fn centered_rect(&self, width: u32, height: u32) -> Rect {
         let monitor = self.monitors.current().geometry;
         let width = width.min(monitor.width as u32) as u16;
         let height = height.min(monitor.height as u32) as u16;
