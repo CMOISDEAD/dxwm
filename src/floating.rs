@@ -4,18 +4,29 @@ use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
 use x11rb::protocol::xproto::*;
 
 use crate::clients::Rect;
-use crate::config::{BORDER_WIDTH, TITLE_HEIGHT};
+use crate::config::{BORDER_WIDTH, MARGIN, MIN_COLUMN_WIDTH, TITLE_HEIGHT};
 use crate::keyboard::lock_masks;
+use crate::layout::strip;
 use crate::wm::WindowManager;
 
 const MIN_SIZE: i32 = 100;
 
-pub struct Drag {
-    window: Window,
-    resize: bool,
-    pointer: (i16, i16),
-    rect: Rect,
-    hints: Option<WmSizeHints>,
+#[derive(Clone, Copy)]
+pub enum Drag {
+    Floating {
+        window: Window,
+        resize: bool,
+        pointer: (i16, i16),
+        rect: Rect,
+        hints: Option<WmSizeHints>,
+    },
+    Column {
+        monitor_id: usize,
+        head: Window,
+        pointer: i16,
+        width: i32,
+        area_width: i32,
+    },
 }
 
 const DECORATION: (i32, i32) = (
@@ -274,41 +285,110 @@ impl WindowManager {
         let Some(client) = self.client_by_frame(e.child) else {
             return Ok(());
         };
-
-        let (window, fullscreen) = (client.window, client.fullscreen);
-        let Some(rect) = client.floating.filter(|_| !fullscreen) else {
+        let (window, floating) = (client.window, client.floating);
+        if client.fullscreen {
             return Ok(());
-        };
+        }
 
-        self.drag = Some(Drag {
-            window,
-            resize: e.detail == u8::from(ButtonIndex::M3),
-            pointer: (e.root_x, e.root_y),
-            rect,
-            hints: self.read_size_hints(window)?,
-        });
+        let resize = e.detail == u8::from(ButtonIndex::M3);
+        self.drag = match floating {
+            Some(rect) => Some(Drag::Floating {
+                window,
+                resize,
+                pointer: (e.root_x, e.root_y),
+                rect,
+                hints: self.read_size_hints(window)?,
+            }),
+            None if resize => self.column_drag(window, e.root_x),
+            None => None,
+        };
 
         self.set_focused_client(window)
     }
 
+    fn column_drag(&self, window: Window, pointer: i16) -> Option<Drag> {
+        let (monitor_id, workspace_id) = self.find_client(window)?;
+        let monitor = self.monitors.get(monitor_id)?;
+        let workspace = monitor.workspaces.workspaces.get(workspace_id)?;
+        let area_width = monitor.work_area().width as i32;
+        let column = strip(workspace, area_width)
+            .into_iter()
+            .find(|c| c.windows.contains(&window))?;
+
+        Some(Drag::Column {
+            monitor_id,
+            head: column.windows[0],
+            pointer,
+            width: column.width,
+            area_width,
+        })
+    }
+
     pub fn handle_button_release(&mut self) -> Result<()> {
-        self.drag = None;
+        if let Some(Drag::Column { head, .. }) = self.drag.take()
+            && let Some(client) = self.client(head)
+        {
+            let percent = (client.column_width * 100.0).round();
+            self.draw_alert(format!("[WIDTH] {}%", percent))?;
+        }
         Ok(())
     }
 
     pub fn handle_drag_motion(&mut self, e: &MotionNotifyEvent) -> Result<bool> {
-        let Some(drag) = &self.drag else {
-            return Ok(false);
-        };
+        match self.drag {
+            None => return Ok(false),
+            Some(Drag::Column {
+                monitor_id,
+                head,
+                pointer,
+                width,
+                area_width,
+            }) => {
+                let width = width + e.root_x as i32 - pointer as i32;
+                self.drag_column(monitor_id, head, width, area_width)?;
+            }
+            Some(Drag::Floating {
+                window,
+                resize,
+                pointer,
+                rect,
+                hints,
+            }) => {
+                let dx = e.root_x as i32 - pointer.0 as i32;
+                let dy = e.root_y as i32 - pointer.1 as i32;
+                self.drag_floating(window, resize, (dx, dy), rect, hints)?;
+            }
+        }
+        Ok(true)
+    }
 
-        let dx = e.root_x as i32 - drag.pointer.0 as i32;
-        let dy = e.root_y as i32 - drag.pointer.1 as i32;
+    fn drag_column(
+        &mut self,
+        monitor_id: usize,
+        head: Window,
+        width: i32,
+        area_width: i32,
+    ) -> Result<()> {
+        let margin = MARGIN as i32;
+        let fraction = (width + margin) as f32 / (area_width - margin).max(1) as f32;
+        if let Some(client) = self.client_mut(head) {
+            client.column_width = fraction.clamp(MIN_COLUMN_WIDTH, 1.0);
+        }
+        self.layout_monitor(monitor_id)
+    }
 
-        let mut rect = drag.rect;
-        if drag.resize {
+    fn drag_floating(
+        &mut self,
+        window: Window,
+        resize: bool,
+        (dx, dy): (i32, i32),
+        mut rect: Rect,
+        hints: Option<WmSizeHints>,
+    ) -> Result<()> {
+        if resize {
             let mut width = (rect.width as i32 + dx).max(MIN_SIZE);
             let mut height = (rect.height as i32 + dy).max(MIN_SIZE);
-            if let Some(hints) = &drag.hints {
+            if let Some(hints) = &hints {
                 let (w, h) = constrain_size(hints, width - DECORATION.0, height - DECORATION.1);
                 (width, height) = (w + DECORATION.0, h + DECORATION.1);
             }
@@ -319,18 +399,15 @@ impl WindowManager {
             rect.y = (rect.y as i32 + dy).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
         }
 
-        let window = drag.window;
         let Some((monitor_id, _)) = self.find_client(window) else {
             self.drag = None;
-            return Ok(true);
+            return Ok(());
         };
 
         if let Some(client) = self.client_mut(window) {
             client.floating = Some(rect);
         }
-
-        self.layout_monitor(monitor_id)?;
-        Ok(true)
+        self.layout_monitor(monitor_id)
     }
 }
 

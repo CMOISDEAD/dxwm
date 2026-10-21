@@ -73,6 +73,7 @@ monitor (minus `MARGIN`).
   with the Shape extension, so it never shows on the next monitor.
 - Hovering a partially visible column focuses it without scrolling; the keyboard
   and `Super+wheel` scroll.
+- `Super+Button3` on a tiled client drags the width of its column.
 
 Fullscreen clients cover the whole monitor without border nor title bar.
 
@@ -250,6 +251,7 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+F`               | toggle fullscreen               |
 | `Super+Shift+Space`     | toggle floating                 |
 | `Super+Button1 / 3`     | move / resize floating client   |
+| `Super+Button3`         | drag the width of a tiled column |
 | `Super+Shift+C`         | close client                    |
 | `Super+1..9`            | switch workspace                |
 | `Super+Shift+1..9`      | move client to workspace        |
@@ -337,7 +339,3 @@ shows an alert when they finish; the WM never waits for them.
 | `config/mod.rs`          | colors, sizes, fonts, apps                              |
 | `config/keybinds.rs`     | the bindings and how actions run                        |
 | `atoms.rs`, `utils.rs`   | X atoms, autostart and shell helpers                    |
-
-## Roadmap
-
-- [ ] Resize columns with the mouse.
