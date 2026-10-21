@@ -81,8 +81,12 @@ Dialogs float instead of being tiled: windows with `WM_TRANSIENT_FOR`, a
 (min == max in `WM_NORMAL_HINTS`). They keep the size they asked for, stay above
 tiled and fullscreen clients and can't leave their monitor.
 
-- Position: the one the client asked for if it set `USPosition`/`PPosition` in
-  `WM_NORMAL_HINTS`, otherwise centered on the current monitor.
+- Position: a dialog is centered over its `WM_TRANSIENT_FOR` parent when the
+  parent is on the current monitor. `USPosition` in `WM_NORMAL_HINTS` always
+  wins, `PPosition` only for clients without a visible parent. Otherwise
+  centered on the current monitor.
+- Resizing with the mouse follows `WM_NORMAL_HINTS`: base size plus whole
+  increments (terminal cells), within the min and max size.
 - Notification windows don't take the focus when they open.
 
 - A floating client is inserted right after the focused one. The column kept
@@ -316,5 +320,3 @@ shows an alert when they finish; the WM never waits for them.
 
 - [ ] Columns: stack several clients in one column
       (niri's consume/expel) and resize columns with the mouse.
-- [ ] Center dialogs over their `WM_TRANSIENT_FOR` parent and respect size hints
-      (min/max, increments) when resizing floating clients.

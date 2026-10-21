@@ -1,6 +1,6 @@
 use anyhow::Result;
 use x11rb::connection::Connection;
-use x11rb::properties::WmSizeHints;
+use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
 use x11rb::protocol::xproto::*;
 
 use crate::clients::Rect;
@@ -15,6 +15,51 @@ pub struct Drag {
     resize: bool,
     pointer: (i16, i16),
     rect: Rect,
+    hints: Option<WmSizeHints>,
+}
+
+const DECORATION: (i32, i32) = (
+    2 * BORDER_WIDTH as i32,
+    (2 * BORDER_WIDTH + TITLE_HEIGHT) as i32,
+);
+
+fn centered(area: Rect, width: u16, height: u16) -> Rect {
+    let center = |start: i16, size: u16, inner: u16| {
+        (start as i32 + (size as i32 - inner as i32) / 2).clamp(i16::MIN as i32, i16::MAX as i32)
+            as i16
+    };
+
+    Rect {
+        x: center(area.x, area.width, width),
+        y: center(area.y, area.height, height),
+        width,
+        height,
+    }
+}
+
+/// ICCCM: the client's size snaps to base + n * increment and stays within min/max
+fn constrain_size(hints: &WmSizeHints, width: i32, height: i32) -> (i32, i32) {
+    let base = hints.base_size.or(hints.min_size).unwrap_or((0, 0));
+    let min = hints.min_size.or(hints.base_size).unwrap_or((1, 1));
+    let increment = hints.size_increment.unwrap_or((1, 1));
+    let max = hints.max_size.unwrap_or((0, 0));
+
+    let axis = |size: i32, base: i32, increment: i32, min: i32, max: i32| {
+        let mut size = size;
+        if increment > 1 {
+            size -= (size - base).rem_euclid(increment);
+        }
+        size = size.max(min);
+        if max > 0 {
+            size = size.min(max);
+        }
+        size.max(1)
+    };
+
+    (
+        axis(width, base.0, increment.0, min.0, max.0),
+        axis(height, base.1, increment.1, min.1, max.1),
+    )
 }
 
 impl WindowManager {
@@ -43,27 +88,42 @@ impl WindowManager {
     }
 
     pub fn initial_float_rect(&self, window: Window, force: Option<bool>) -> Result<Option<Rect>> {
-        let hints = WmSizeHints::get_normal_hints(&self.conn, window)?
-            .reply()
-            .ok()
-            .flatten();
+        let hints = self.read_size_hints(window)?;
+        let parent = self.transient_for(window)?;
 
         let fixed_size = hints.is_some_and(|h| h.min_size.is_some() && h.min_size == h.max_size);
 
         let floating = match force {
             Some(floating) => floating,
-            None => fixed_size || self.is_transient(window)? || self.has_floating_type(window)?,
+            None => fixed_size || parent.is_some() || self.has_floating_type(window)?,
         };
         if !floating {
             return Ok(None);
         }
 
         let geometry = self.conn.get_geometry(window)?.reply()?;
-        let width = geometry.width as u32 + 2 * BORDER_WIDTH;
-        let height = geometry.height as u32 + 2 * BORDER_WIDTH + TITLE_HEIGHT;
-        let mut rect = self.centered_rect(width, height);
+        let width = geometry.width as u32 + DECORATION.0 as u32;
+        let height = geometry.height as u32 + DECORATION.1 as u32;
 
-        if hints.is_some_and(|h| h.position.is_some()) {
+        let monitor = self.monitors.current().geometry;
+        let parent = parent
+            .and_then(|w| self.client(w))
+            .map(|c| c.geometry)
+            .filter(|g| {
+                let (x, y) = g.center();
+                monitor.contains(x, y)
+            });
+        let mut rect = match parent {
+            Some(parent) => centered(parent, width as u16, height as u16),
+            None => self.centered_rect(width, height),
+        };
+
+        let position = hints.and_then(|h| h.position);
+        let user_position = matches!(
+            position,
+            Some((WmSizeHintsSpecification::UserSpecified, ..))
+        );
+        if user_position || (parent.is_none() && position.is_some()) {
             rect.x = geometry.x;
             rect.y = geometry.y;
         }
@@ -75,20 +135,22 @@ impl WindowManager {
         let monitor = self.monitors.current().geometry;
         let width = width.min(monitor.width as u32) as u16;
         let height = height.min(monitor.height as u32) as u16;
-
-        Rect {
-            x: monitor.x + ((monitor.width - width) / 2) as i16,
-            y: monitor.y + ((monitor.height - height) / 2) as i16,
-            width,
-            height,
-        }
+        centered(monitor, width, height)
     }
 
-    fn is_transient(&self, window: Window) -> Result<bool> {
+    fn read_size_hints(&self, window: Window) -> Result<Option<WmSizeHints>> {
+        Ok(WmSizeHints::get_normal_hints(&self.conn, window)?
+            .reply()
+            .ok()
+            .flatten())
+    }
+
+    fn transient_for(&self, window: Window) -> Result<Option<Window>> {
         Ok(self
             .property32(window, AtomEnum::WM_TRANSIENT_FOR, AtomEnum::WINDOW)?
-            .iter()
-            .any(|&parent| parent != x11rb::NONE))
+            .first()
+            .copied()
+            .filter(|&parent| parent != x11rb::NONE))
     }
 
     pub fn has_window_type(&self, window: Window, types: &[Atom]) -> Result<bool> {
@@ -220,6 +282,7 @@ impl WindowManager {
             resize: e.detail == u8::from(ButtonIndex::M3),
             pointer: (e.root_x, e.root_y),
             rect,
+            hints: self.read_size_hints(window)?,
         });
 
         self.set_focused_client(window)
@@ -240,8 +303,14 @@ impl WindowManager {
 
         let mut rect = drag.rect;
         if drag.resize {
-            rect.width = (rect.width as i32 + dx).clamp(MIN_SIZE, u16::MAX as i32) as u16;
-            rect.height = (rect.height as i32 + dy).clamp(MIN_SIZE, u16::MAX as i32) as u16;
+            let mut width = (rect.width as i32 + dx).max(MIN_SIZE);
+            let mut height = (rect.height as i32 + dy).max(MIN_SIZE);
+            if let Some(hints) = &drag.hints {
+                let (w, h) = constrain_size(hints, width - DECORATION.0, height - DECORATION.1);
+                (width, height) = (w + DECORATION.0, h + DECORATION.1);
+            }
+            rect.width = width.min(u16::MAX as i32) as u16;
+            rect.height = height.min(u16::MAX as i32) as u16;
         } else {
             rect.x = (rect.x as i32 + dx).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
             rect.y = (rect.y as i32 + dy).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
@@ -259,5 +328,52 @@ impl WindowManager {
 
         self.layout_monitor(monitor_id)?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sizes_snap_to_the_increments_from_the_base() {
+        let hints = WmSizeHints {
+            base_size: Some((4, 2)),
+            size_increment: Some((10, 20)),
+            ..WmSizeHints::new()
+        };
+        assert_eq!(constrain_size(&hints, 157, 85), (154, 82));
+    }
+
+    #[test]
+    fn sizes_stay_within_min_and_max() {
+        let hints = WmSizeHints {
+            min_size: Some((200, 100)),
+            max_size: Some((400, 300)),
+            ..WmSizeHints::new()
+        };
+        assert_eq!(constrain_size(&hints, 50, 50), (200, 100));
+        assert_eq!(constrain_size(&hints, 900, 900), (400, 300));
+        assert_eq!(constrain_size(&WmSizeHints::new(), 123, 45), (123, 45));
+    }
+
+    #[test]
+    fn centers_over_an_area() {
+        let parent = Rect {
+            x: 100,
+            y: 50,
+            width: 400,
+            height: 300,
+        };
+        assert_eq!(
+            centered(parent, 200, 100),
+            Rect {
+                x: 200,
+                y: 150,
+                width: 200,
+                height: 100
+            }
+        );
+        assert_eq!(centered(parent, 600, 300).x, 0);
     }
 }
