@@ -3,9 +3,9 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{KeyPressEvent, ModMask};
 
 use super::{COLUMN_WIDTH_STEP, EDITOR_APP, FILEMANAGER_APP, TERMINAL_APP};
-use crate::keybindings::Action;
 use crate::keybindings::KeyAction::{self, Custom};
-use crate::keyboard::{self, normalize_modifiers};
+use crate::keybindings::{Action, KeyBindingManager};
+use crate::keyboard::{self, Keymap, normalize_modifiers};
 use crate::keysyms::*;
 use crate::screenshot::Shot;
 use crate::utils::{battery_status, command_output, mic_status, volume_status};
@@ -177,6 +177,13 @@ impl WindowManager {
 
         self.grab_buttons()?;
         self.update_grabs()
+    }
+
+    pub fn reload_keymap(&mut self) -> Result<()> {
+        println!("Keyboard mapping changed, grabbing the keys again");
+        self.keymap = Keymap::new(&self.conn)?;
+        self.keybindings = KeyBindingManager::default();
+        self.setup_keybindings()
     }
 
     fn update_grabs(&self) -> Result<()> {

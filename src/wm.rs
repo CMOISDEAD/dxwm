@@ -281,6 +281,7 @@ impl WindowManager {
             Event::PropertyNotify(e) => self.handle_property_notify(e),
             Event::ClientMessage(e) => self.handle_client_message(e),
             Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
+            Event::MappingNotify(e) if e.request != Mapping::POINTER => self.reload_keymap(),
             Event::Error(e) => {
                 eprintln!("X11 error: {:?}", e);
                 Ok(())
