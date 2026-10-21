@@ -5,9 +5,10 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use x11rb::connection::{Connection, RequestConnection};
 use x11rb::cursor::Handle as CursorHandle;
-use x11rb::protocol::Event;
+use x11rb::errors::ReplyError;
 use x11rb::protocol::randr::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::*;
+use x11rb::protocol::{ErrorKind, Event};
 use x11rb::rust_connection::RustConnection;
 
 use crate::alerts::Alerts;
@@ -176,7 +177,9 @@ impl WindowManager {
                 let Some(event) = self.conn.poll_for_event()? else {
                     break;
                 };
-                if let Err(err) = self.handle_event(event) {
+                if let Err(err) = self.handle_event(event)
+                    && !is_window_gone(&err)
+                {
                     eprintln!("Error handling event: {:#}", err);
                 }
             }
@@ -282,6 +285,7 @@ impl WindowManager {
             Event::ClientMessage(e) => self.handle_client_message(e),
             Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
             Event::MappingNotify(e) if e.request != Mapping::POINTER => self.reload_keymap(),
+            Event::Error(e) if e.error_kind == ErrorKind::Window => Ok(()),
             Event::Error(e) => {
                 eprintln!("X11 error: {:?}", e);
                 Ok(())
@@ -289,4 +293,15 @@ impl WindowManager {
             _ => Ok(()),
         }
     }
+}
+
+/// A client can destroy its windows while we still act on them (BadWindow), dwm
+/// ignores it too
+fn is_window_gone(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<ReplyError>(),
+            Some(ReplyError::X11Error(e)) if e.error_kind == ErrorKind::Window
+        )
+    })
 }
