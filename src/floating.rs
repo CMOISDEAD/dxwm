@@ -177,13 +177,16 @@ impl WindowManager {
     }
 
     pub fn toggle_floating(&mut self, window: Window) -> Result<()> {
-        let Some((monitor_id, _)) = self.find_client(window) else {
+        let Some((monitor_id, workspace_id)) = self.find_client(window) else {
             return Ok(());
         };
 
         let monitor = self.monitors.current().geometry;
         let rect = self.centered_rect(monitor.width as u32 * 2 / 3, monitor.height as u32 * 2 / 3);
 
+        if let Some(workspace) = self.workspace_of_mut(monitor_id, workspace_id) {
+            workspace.leave_column(window);
+        }
         if let Some(client) = self.client_mut(window) {
             client.floating = match client.floating {
                 Some(_) => None,

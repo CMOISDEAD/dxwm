@@ -47,6 +47,8 @@ pub const XK_EQUAL: u32 = 0x003d;
 pub const XK_SLASH: u32 = 0x002f;
 pub const XK_SEMICOLON: u32 = 0x003b;
 pub const XK_GRAVE: u32 = 0x0060;
+pub const XK_BRACKETLEFT: u32 = 0x005b;
+pub const XK_BRACKETRIGHT: u32 = 0x005d;
 
 pub const XK_BACKSPACE: u32 = 0xff08;
 pub const XK_TAB: u32 = 0xff09;

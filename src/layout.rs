@@ -37,19 +37,45 @@ impl Placement {
     }
 }
 
-pub fn strip(workspace: &Workspace, width: i32) -> Vec<(Window, i32, i32)> {
+#[derive(Debug, PartialEq)]
+pub struct Column {
+    pub windows: Vec<Window>,
+    pub start: i32,
+    pub width: i32,
+}
+
+pub fn strip(workspace: &Workspace, width: i32) -> Vec<Column> {
     let margin = MARGIN as i32;
     let mut columns = Vec::new();
     let mut end = 0;
 
-    for client in workspace.clients.iter().filter(|c| c.is_tiled()) {
-        let column =
-            ((client.column_width * (width - margin) as f32).round() as i32 - margin).max(1);
-        columns.push((client.window, end, column));
+    for windows in workspace.columns() {
+        let column_width = workspace.get(windows[0]).map_or(1.0, |c| c.column_width);
+        let column = ((column_width * (width - margin) as f32).round() as i32 - margin).max(1);
+        columns.push(Column {
+            windows,
+            start: end,
+            width: column,
+        });
         end += column + margin;
     }
 
     columns
+}
+
+/// `row` of `rows` windows sharing `height`, `MARGIN` apart: (offset, height)
+fn row(height: i32, row: usize, rows: usize) -> (i32, i32) {
+    let margin = MARGIN as i32;
+    let rows = rows.max(1) as i32;
+    let row = row as i32;
+    let each = ((height - margin * (rows - 1)) / rows).max(1);
+    let offset = row * (each + margin);
+    let size = if row == rows - 1 {
+        (height - offset).max(1)
+    } else {
+        each
+    };
+    (offset, size)
 }
 
 /// Where the clients of `workspace` go on a monitor (`area` is its work area), and
@@ -69,7 +95,7 @@ fn arrange(
     let view = area_width - margin * 2;
 
     let columns = strip(workspace, area_width);
-    let end = columns.last().map_or(0, |&(_, start, width)| start + width);
+    let end = columns.last().map_or(0, |c| c.start + c.width);
 
     // A dialog keeps in view the column that opened it, the closest one before it
     let anchor = workspace
@@ -84,7 +110,8 @@ fn arrange(
         .map(|c| c.window);
 
     let mut scroll = workspace.scroll;
-    if let Some(&(_, start, width)) = columns.iter().find(|c| Some(c.0) == anchor) {
+    let anchor = anchor.and_then(|w| columns.iter().find(|c| c.windows.contains(&w)));
+    if let Some(&Column { start, width, .. }) = anchor {
         if center {
             scroll = centered_scroll(start, width, view);
         } else if start < scroll || width >= view {
@@ -111,8 +138,13 @@ fn arrange(
                 let y = (rect.y as i32).clamp(mon_y, mon_y + mon_height - height);
                 Placement::framed(x, y, width, height)
             } else {
-                let &(_, start, width) = columns.iter().find(|c| c.0 == client.window)?;
-                let x = area_x + margin + start - scroll;
+                let column = columns
+                    .iter()
+                    .find(|c| c.windows.contains(&client.window))?;
+                let index = column.windows.iter().position(|&w| w == client.window)?;
+                let (offset, height) = row(height, index, column.windows.len());
+                let (y, width) = (y + offset, column.width);
+                let x = area_x + margin + column.start - scroll;
                 let visible = (x.max(area_x), (x + width).min(area_x + area_width));
 
                 if visible.0 >= visible.1 {
@@ -189,10 +221,11 @@ impl WindowManager {
         let area_width = monitor.work_area().width as i32;
         let columns = strip(workspace, area_width);
 
-        let Some(&(_, start, width)) = columns
-            .iter()
-            .find(|c| Some(c.0) == workspace.focused_client)
-        else {
+        let Some(&Column { start, width, .. }) = columns.iter().find(|c| {
+            workspace
+                .focused_client
+                .is_some_and(|w| c.windows.contains(&w))
+        }) else {
             return Ok(());
         };
 
@@ -202,17 +235,12 @@ impl WindowManager {
     }
 
     fn set_column_width(&mut self, change: impl Fn(f32) -> f32) -> Result<()> {
-        let Some(window) = self.focused_client() else {
+        let head = self
+            .focused_client()
+            .and_then(|w| self.workspace().column_head(w));
+        let Some(client) = head.and_then(|w| self.client_mut(w)) else {
             return Ok(());
         };
-
-        let Some(client) = self.client_mut(window) else {
-            return Ok(());
-        };
-
-        if client.fullscreen || client.floating.is_some() {
-            return Ok(());
-        }
 
         client.column_width = change(client.column_width).clamp(MIN_COLUMN_WIDTH, 1.0);
         let percent = (client.column_width * 100.0).round();
@@ -242,6 +270,16 @@ impl WindowManager {
                 DEFAULT_COLUMN_WIDTH
             }
         })
+    }
+
+    pub fn consume_or_expel(&mut self, right: bool) -> Result<()> {
+        let Some(window) = self.focused_client() else {
+            return Ok(());
+        };
+        if self.workspace_mut().consume_or_expel(window, right) {
+            self.layout()?;
+        }
+        Ok(())
     }
 
     pub fn raise_floating(&self, monitor_id: usize) -> Result<()> {
@@ -388,7 +426,14 @@ mod tests {
     #[test]
     fn strip_splits_the_width_with_margins() {
         let columns = strip(&workspace(&[0.5, 0.5, 1.0], 0), 800);
-        assert_eq!(columns, vec![(1, 0, 385), (2, 395, 385), (3, 790, 780)]);
+        let shape: Vec<_> = columns
+            .iter()
+            .map(|c| (c.windows.clone(), c.start, c.width))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![(vec![1], 0, 385), (vec![2], 395, 385), (vec![3], 790, 780)]
+        );
     }
 
     #[test]
@@ -431,6 +476,26 @@ mod tests {
     fn centering_never_scrolls_past_the_ends() {
         let ws = workspace(&[0.5, 0.5, 0.5], 0);
         assert_eq!(arrange(&ws, MONITOR, MONITOR, true).0, 0);
+    }
+
+    #[test]
+    fn stacked_clients_share_the_height_of_their_column() {
+        let mut ws = workspace(&[0.5, 0.5, 0.5], 0);
+        ws.clients[1].stacked = true;
+        ws.clients[2].stacked = true;
+
+        let (_, placements) = arrange(&ws, MONITOR, MONITOR, false);
+
+        let rows: Vec<_> = (1..=3)
+            .map(|w| {
+                let p = placement(&placements, w);
+                (p.x, p.y, p.width, p.height)
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![(10, 10, 385, 186), (10, 206, 385, 186), (10, 402, 385, 188)]
+        );
     }
 
     #[test]

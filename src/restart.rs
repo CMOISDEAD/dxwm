@@ -8,8 +8,8 @@ use crate::wm::{Exit, WindowManager};
 
 /// Workspaces are saved by their number (`Workspace::number`)
 /// _DXWM_CLIENT: monitor, workspace, position, column width (per mille), focused,
-/// floating, x, y, width, height
-const CLIENT_STATE_LEN: usize = 10;
+/// floating, x, y, width, height, stacked. Without stacked from older versions
+const CLIENT_STATE_LEN: usize = 11;
 
 impl WindowManager {
     /// The clients go back to the root when the connection closes (they are in the
@@ -54,6 +54,7 @@ impl WindowManager {
                         rect.y as i32 as u32,
                         rect.width as u32,
                         rect.height as u32,
+                        client.stacked as u32,
                     ];
 
                     self.conn.change_property32(
@@ -102,7 +103,9 @@ impl WindowManager {
             }
 
             let state = self.take_property(window, self.atoms.dxwm_client)?;
-            let state = (state.len() == CLIENT_STATE_LEN).then_some(state);
+            let state = (CLIENT_STATE_LEN - 1..=CLIENT_STATE_LEN)
+                .contains(&state.len())
+                .then_some(state);
             let fullscreen = self.wants_fullscreen(window)?;
 
             let rule = self.rule_for(window)?;
@@ -147,6 +150,7 @@ impl WindowManager {
                     width: s[8] as u16,
                     height: s[9] as u16,
                 });
+                client.stacked = s.get(10) == Some(&1);
             }
 
             let window = client.window;

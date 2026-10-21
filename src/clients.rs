@@ -50,6 +50,8 @@ pub struct Client {
     pub take_focus: bool,
     pub urgent: bool,
     pub scratchpad: bool,
+    /// Shares the column of the previous tiled client
+    pub stacked: bool,
 }
 
 impl Client {
@@ -66,6 +68,7 @@ impl Client {
             take_focus: false,
             urgent: false,
             scratchpad: false,
+            stacked: false,
         }
     }
 
@@ -441,13 +444,13 @@ impl WindowManager {
     }
 
     fn swap_step(&mut self, step: isize) -> Result<()> {
-        let workspace = self.workspace_mut();
-        let Some((current, target)) = workspace.step_from_focused(step) else {
+        let Some(window) = self.focused_client() else {
             return Ok(());
         };
-
-        workspace.clients.swap(current, target);
-        self.layout()
+        if self.workspace_mut().move_window(window, step > 0) {
+            self.layout()?;
+        }
+        Ok(())
     }
 
     pub fn update_client_borders(&mut self) -> Result<()> {

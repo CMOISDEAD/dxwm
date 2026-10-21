@@ -219,10 +219,13 @@ impl WindowManager {
 
                 let columns = strip(ws, width)
                     .into_iter()
-                    .map(|(window, start, width)| {
-                        let x = scale(start);
-                        let end = scale(start + width);
-                        (x, (end - x - 1).max(1), ws.focused_client == Some(window))
+                    .map(|column| {
+                        let x = scale(column.start);
+                        let end = scale(column.start + column.width);
+                        let focused = ws
+                            .focused_client
+                            .is_some_and(|w| column.windows.contains(&w));
+                        (x, (end - x - 1).max(1), focused)
                     })
                     .collect();
 

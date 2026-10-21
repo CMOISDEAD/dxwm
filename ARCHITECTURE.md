@@ -61,7 +61,13 @@ monitor (minus `MARGIN`).
   enough to show the focused column completely, and never past the ends.
   `Super+C` centers the focused column once; `CENTER_FOCUSED_COLUMN = true`
   keeps it always centered.
-- A new client opens right after the focused one.
+- A column can hold several clients stacked top to bottom, sharing its height
+  (`MARGIN` apart). A client with `stacked` joins the column of the previous
+  tiled client; the column has the width of its first client. `Super+[`/`]`
+  moves a lone client into the column on that side, or a stacked one out to a
+  new column there (niri's consume/expel). Fullscreen clients keep their place
+  in a column but leave it while fullscreen; floating ones are not in columns.
+- A new client opens right after the focused column.
 - Columns out of view stay mapped but parked off-screen (`x = -2 * monitor
   width`), so scrolling is instant. A column cut by the monitor edge is clipped
   with the Shape extension, so it never shows on the next monitor.
@@ -234,7 +240,8 @@ grabs the whole keyboard; it is oneshot and any unbound key leaves it.
 | `Super+Return`          | terminal                        |
 | `` Super+` ``           | toggle the scratchpad           |
 | `Super+J / K`           | focus next / previous client    |
-| `Super+Shift+J / K`     | move column right / left        |
+| `Super+Shift+J / K`     | move window in its column, or the column right / left |
+| `Super+[ / ]`           | stack into the column left / right, or take out of it |
 | `Super+H / L`           | narrower / wider column (10%)   |
 | `Super+R`               | next preset width (1/3, 1/2, 2/3) |
 | `Super+M`               | maximize column / default width |
@@ -333,5 +340,4 @@ shows an alert when they finish; the WM never waits for them.
 
 ## Roadmap
 
-- [ ] Columns: stack several clients in one column
-      (niri's consume/expel) and resize columns with the mouse.
+- [ ] Resize columns with the mouse.
